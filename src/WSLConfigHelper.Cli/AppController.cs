@@ -15,6 +15,7 @@ public class AppController
     private readonly GuardrailEngine _guardrails;
     private readonly PresetEngine _presets;
 
+    private readonly DesktopAutomationView _desktopAutomationView;
     private IniDocument _currentDoc;
     private HostHardwareMetrics _hostMetrics;
     private bool _hasUnsavedChanges;
@@ -25,13 +26,14 @@ public class AppController
         _prober = prober ?? new HostSystemProber();
         _guardrails = new GuardrailEngine();
         _presets = new PresetEngine();
+        _desktopAutomationView = new DesktopAutomationView();
 
         _hostMetrics = _prober.Probe();
         _currentDoc = _fileService.Load();
         _hasUnsavedChanges = false;
     }
 
-    public void Run()
+    public async Task RunAsync()
     {
         while (true)
         {
@@ -46,10 +48,11 @@ public class AppController
                     "3. ⚡ Apply Hardware-Tuned Preset",
                     "4. ⚙️  Edit [[wsl2]] Core Settings (Memory, vCPUs, Swap...)",
                     "5. 🧪 Edit [[experimental]] Settings (Mirrored Net, AutoReclaim...)",
-                    "6. 💾 Save Changes to .wslconfig (Creates single .bak)",
-                    "7. 🔄 Restore from .wslconfig.bak",
-                    "8. 📄 View Raw INI Document",
-                    "9. 🚪 Exit"
+                    "6. 🖥️  Desktop Experience & Viewport (Fedora KDE + GPU-PV)",
+                    "7. 💾 Save Changes to .wslconfig (Creates single .bak)",
+                    "8. 🔄 Restore from .wslconfig.bak",
+                    "9. 📄 View Raw INI Document",
+                    "10. 🚪 Exit"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
@@ -85,17 +88,21 @@ public class AppController
             }
             else if (choice.StartsWith("6."))
             {
-                SaveChanges();
+                await _desktopAutomationView.ShowAsync();
             }
             else if (choice.StartsWith("7."))
             {
-                RestoreBackup();
+                SaveChanges();
             }
             else if (choice.StartsWith("8."))
             {
-                ShowRawIni();
+                RestoreBackup();
             }
             else if (choice.StartsWith("9."))
+            {
+                ShowRawIni();
+            }
+            else if (choice.StartsWith("10."))
             {
                 if (ConfirmExit())
                 {

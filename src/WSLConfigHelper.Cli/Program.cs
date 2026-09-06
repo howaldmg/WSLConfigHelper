@@ -5,7 +5,7 @@ namespace WSLConfigHelper.Cli;
 
 public static class Program
 {
-    public static int Main(string[] args)
+    public static async Task<int> Main(string[] args)
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
 
@@ -33,7 +33,7 @@ public static class Program
         {
             var fileService = new WslConfigFileService(customConfigPath);
             var app = new AppController(fileService);
-            app.Run();
+            await app.RunAsync();
             return 0;
         }
         catch (Exception ex)

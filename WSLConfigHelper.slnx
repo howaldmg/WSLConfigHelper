@@ -1,9 +1,11 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/WSLConfigHelper.Automation/WSLConfigHelper.Automation.csproj" />
     <Project Path="src/WSLConfigHelper.Cli/WSLConfigHelper.Cli.csproj" />
     <Project Path="src/WSLConfigHelper.Core/WSLConfigHelper.Core.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/WSLConfigHelper.Automation.Tests/WSLConfigHelper.Automation.Tests.csproj" />
     <Project Path="tests/WSLConfigHelper.Core.Tests/WSLConfigHelper.Core.Tests.csproj" />
   </Folder>
 </Solution>
