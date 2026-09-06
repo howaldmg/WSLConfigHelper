@@ -54,7 +54,12 @@ public class ViewportManager
             export DISPLAY=:0
 
             echo "Starting KDE Plasma inside WSLg nested Wayland window ({width}x{height})..."
-            exec dbus-run-session kwin_wayland --wayland-display wayland-0 -s wayland-1 --width {width} --height {height} --exit-with-session plasma-workspace
+            if [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+                export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+                exec kwin_wayland --wayland-display wayland-0 -s wayland-1 --width {width} --height {height} --exit-with-session plasma-workspace
+            else
+                exec dbus-run-session kwin_wayland --wayland-display wayland-0 -s wayland-1 --width {width} --height {height} --exit-with-session plasma-workspace
+            fi
             EOF
             chmod +x /usr/local/bin/start-plasma-wslg
             """;
@@ -132,5 +137,70 @@ public class ViewportManager
             """;
 
         return await _runner.ExecuteInDistroAsync(distro, script, cancellationToken: cancellationToken);
+    }
+
+    public async Task<WslExecutionResult> SetupRdpViewportScriptAsync(
+        string distro,
+        int width = 1920,
+        int height = 1080,
+        int port = 3390,
+        CancellationToken cancellationToken = default)
+    {
+        var script = $"""
+            cat << 'EOF' > /usr/local/bin/start-plasma-rdp
+            #!/bin/bash
+            export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+            export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+
+            export LIBGL_ALWAYS_SOFTWARE=0
+            export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+            export GALLIUM_DRIVER=d3d12
+
+            if [ ! -f "$HOME/krdp.crt" ] || [ ! -f "$HOME/krdp.key" ]; then
+                openssl req -x509 -newkey rsa:2048 -nodes -keyout "$HOME/krdp.key" -out "$HOME/krdp.crt" -days 365 -subj "/CN=Fedora-Desktop"
+            fi
+
+            echo "Starting KDE Plasma virtual headless display ({width}x{height})..."
+            kwin_wayland --virtual --width {width} --height {height} --exit-with-session plasma-workspace &
+            KWIN_PID=$!
+            sleep 2
+
+            echo "Starting KDE native RDP server on port {port}..."
+            /usr/bin/krdpserver --port {port} --username developer --password developer --certificate "$HOME/krdp.crt" --certificate-key "$HOME/krdp.key" --plasma &
+            KRDP_PID=$!
+
+            echo "RDP server ready on port {port}!"
+            trap "kill -TERM $KWIN_PID $KRDP_PID 2>/dev/null" SIGINT SIGTERM EXIT
+            wait $KWIN_PID
+            EOF
+            chmod +x /usr/local/bin/start-plasma-rdp
+            """;
+
+        return await _runner.ExecuteInDistroAsync(distro, script, cancellationToken: cancellationToken);
+    }
+
+    public Process LaunchRdpViewport(string distro, string user = "developer")
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "wsl.exe",
+            Arguments = $"-d {distro} -u {user} -- /usr/local/bin/start-plasma-rdp",
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        return Process.Start(psi)!;
+    }
+
+    public Process LaunchWindowsMstsc(string address = "127.0.0.1:3390")
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = "mstsc.exe",
+            Arguments = $"/v:{address}",
+            UseShellExecute = true
+        };
+
+        return Process.Start(psi)!;
     }
 }

@@ -68,4 +68,20 @@ public class ViewportManagerTests
         Assert.Contains("sunshine &", recorder.LastBashCommand);
         Assert.Contains("chmod 0666 /dev/uinput", recorder.LastBashCommand);
     }
+
+    [Fact]
+    public async Task SetupRdpViewportScriptGeneratesCorrectServicesAndPort()
+    {
+        var recorder = new ViewportRunnerRecorder();
+        var manager = new ViewportManager(recorder);
+
+        var result = await manager.SetupRdpViewportScriptAsync("Fedora-Desktop", 1920, 1080, 3390);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("Fedora-Desktop", recorder.LastDistro);
+        Assert.Contains("start-plasma-rdp", recorder.LastBashCommand);
+        Assert.Contains("kwin_wayland --virtual --width 1920 --height 1080", recorder.LastBashCommand);
+        Assert.Contains("/usr/bin/krdpserver --port 3390", recorder.LastBashCommand);
+        Assert.Contains("krdp.crt", recorder.LastBashCommand);
+    }
 }

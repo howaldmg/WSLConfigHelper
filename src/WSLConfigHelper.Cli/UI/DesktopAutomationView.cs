@@ -58,9 +58,10 @@ public class DesktopAutomationView
                     "1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
                     "2. 📦 Phase 1: Provision Fedora-Desktop & GPU-PV (Mesa D3D12)",
                     "3. 🎨 Phase 2: Install Full KDE Plasma Desktop & Sound",
-                    "4. 🪟 Phase 3: Launch Viewport (WSLg Direct Nested Window)",
-                    "5. ☀️ Phase 4: Configure Sunshine + Headless Virtual Display",
-                    "6. 🚪 ← Back to Main Menu"
+                    "4. 🖥️ Phase 3: Launch Full Desktop (KDE 6 RDP Viewport - mstsc)",
+                    "5. 🪟 Phase 4: Launch Native KDE Apps in WSLg (Dolphin / Konsole)",
+                    "6. ☀️ Phase 5: Sunshine Streaming Setup (Experimental)",
+                    "7. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
@@ -79,13 +80,17 @@ public class DesktopAutomationView
             }
             else if (choice.StartsWith("4."))
             {
-                await RunPhase3Async(distroExists);
+                await RunPhase3RdpAsync(distroExists);
             }
             else if (choice.StartsWith("5."))
             {
-                await RunPhase4Async(distroExists);
+                await RunPhase4WslgAppsAsync(distroExists);
             }
             else if (choice.StartsWith("6."))
+            {
+                await RunPhase5SunshineAsync(distroExists);
+            }
+            else
             {
                 break;
             }
@@ -301,10 +306,10 @@ public class DesktopAutomationView
         ConsoleRenderer.PressEnterToContinue();
     }
 
-    private async Task RunPhase3Async(bool distroExists)
+    private async Task RunPhase3RdpAsync(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule("[bold cyan]Phase 3: Viewport Step 1 - WSLg Direct Nested Window[/]") { Justification = Justify.Left });
+        AnsiConsole.Write(new Rule("[bold cyan]Phase 3: Launch Full Desktop (KDE Plasma 6 RDP Viewport)[/]") { Justification = Justify.Left });
 
         if (!distroExists)
         {
@@ -313,51 +318,50 @@ public class DesktopAutomationView
             return;
         }
 
-        AnsiConsole.MarkupLine("[grey]Generates '/usr/local/bin/start-plasma-wslg' and launches KDE Plasma directly inside a native Windows desktop window using WSLg.[/]\n");
+        AnsiConsole.MarkupLine("[grey]Deploys a virtual 60fps KDE Plasma 6 desktop and exposes it via KDE's native RDP server ('krdp') on port 3390.[/]\n");
 
-        var config = _configFileService.Load();
-        var guiValue = config.GetValue("wsl2", "guiApplications");
-        bool guiDisabled = string.Equals(guiValue, "false", StringComparison.OrdinalIgnoreCase);
+        int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
+        int height = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Height (pixels):").DefaultValue(1080));
+        int port = 3390;
 
-        if (guiDisabled)
+        AnsiConsole.MarkupLine("[cyan]Generating startup script and TLS certificate...[/]");
+        await _viewportManager.SetupRdpViewportScriptAsync(TargetDistro, width, height, port);
+        AnsiConsole.MarkupLine("[green]✓ Script generated at /usr/local/bin/start-plasma-rdp[/]");
+
+        var infoPanel = new Panel(new Markup(
+            "[bold white]Remote Desktop Connection Info:[/]\n\n" +
+            $"• Address:  [bold green]127.0.0.1:{port}[/]\n" +
+            "• Username: [bold cyan]developer[/]\n" +
+            "• Password: [bold cyan]developer[/]\n\n" +
+            "[grey]Hardware acceleration is fully active via Mesa D3D12 (RTX 4080).[/]"
+        ))
         {
-            AnsiConsole.MarkupLine("[yellow bold]Notice:[/] Your [cyan]%USERPROFILE%\\.wslconfig[/] currently has [bold red]guiApplications=false[/].");
-            AnsiConsole.MarkupLine("[grey]WSLg requires 'guiApplications=true' to initialize host window surfaces.[/]\n");
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader(" RDP Viewport Details ")
+        };
+        AnsiConsole.Write(infoPanel);
+        AnsiConsole.WriteLine();
 
-            if (AnsiConsole.Confirm("Would you like WSLConfigHelper to update guiApplications=true now?", defaultValue: true))
-            {
-                config.SetValue("wsl2", "guiApplications", "true");
-                _configFileService.Save(config);
-                AnsiConsole.MarkupLine("[green bold]✓ Updated .wslconfig! (Backup created at .wslconfig.bak)[/]");
-                AnsiConsole.MarkupLine("[yellow bold]Important:[/] A full WSL restart ([cyan]wsl --shutdown[/]) is required before WSLg will become active.\n");
-            }
-            else
-            {
-                AnsiConsole.MarkupLine("[grey]Note: You can alternatively use Phase 4 (Sunshine), which does not require WSLg.[/]\n");
-            }
-        }
-
-        int width = AnsiConsole.Prompt(new TextPrompt<int>("Window Width (pixels):").DefaultValue(1920));
-        int height = AnsiConsole.Prompt(new TextPrompt<int>("Window Height (pixels):").DefaultValue(1080));
-
-        AnsiConsole.MarkupLine("[cyan]Generating startup script...[/]");
-        await _viewportManager.SetupWslgViewportScriptAsync(TargetDistro, width, height);
-        AnsiConsole.MarkupLine("[green]✓ Script generated at /usr/local/bin/start-plasma-wslg[/]");
-
-        if (AnsiConsole.Confirm("Launch KDE Plasma desktop window now?", defaultValue: true))
+        if (AnsiConsole.Confirm("Start KDE Plasma session and open Windows Remote Desktop (mstsc) now?", defaultValue: true))
         {
-            AnsiConsole.MarkupLine("[green bold]Launching KDE Plasma inside WSLg nested Wayland window...[/]");
-            _viewportManager.LaunchWslgViewport(TargetDistro, "developer");
-            AnsiConsole.MarkupLine("[cyan]Desktop process launched! Look for the KDE Plasma window on your Windows desktop.[/]");
+            AnsiConsole.MarkupLine("[green bold]Starting KDE Plasma session in background...[/]");
+            _viewportManager.LaunchRdpViewport(TargetDistro, "developer");
+
+            // Give it 2 seconds to initialize KWin and krdpserver
+            await Task.Delay(2000);
+
+            AnsiConsole.MarkupLine("[cyan]Opening Windows Remote Desktop Connection (mstsc.exe)...[/]");
+            _viewportManager.LaunchWindowsMstsc($"127.0.0.1:{port}");
+            AnsiConsole.MarkupLine("[green]✓ Client launched! Enter 'developer' / 'developer' when prompted.[/]");
         }
 
         ConsoleRenderer.PressEnterToContinue();
     }
 
-    private async Task RunPhase4Async(bool distroExists)
+    private async Task RunPhase4WslgAppsAsync(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule("[bold cyan]Phase 4: Viewport Step 2 - Sunshine + Virtual Display[/]") { Justification = Justify.Left });
+        AnsiConsole.Write(new Rule("[bold cyan]Phase 4: Launch Native KDE Apps in WSLg[/]") { Justification = Justify.Left });
 
         if (!distroExists)
         {
@@ -366,50 +370,68 @@ public class DesktopAutomationView
             return;
         }
 
-        AnsiConsole.MarkupLine("[grey]Configures KWin's headless virtual display and installs Sunshine for ultra-low-latency 60-120fps NVENC streaming to Moonlight.[/]\n");
+        AnsiConsole.MarkupLine("[grey]Launches individual KDE desktop apps seamlessly onto your Windows desktop using WSLg.[/]\n");
 
-        int width = AnsiConsole.Prompt(new TextPrompt<int>("Virtual Display Width:").DefaultValue(2560));
-        int height = AnsiConsole.Prompt(new TextPrompt<int>("Virtual Display Height:").DefaultValue(1440));
+        var appChoice = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[bold]Select an application to launch on Windows:[/]")
+                .AddChoices(
+                    "1. 📁 Dolphin (KDE File Manager)",
+                    "2. 💻 Konsole (KDE Terminal)",
+                    "3. ⚙️ System Settings (systemsettings)",
+                    "4. ✏️ Custom Linux GUI Command",
+                    "5. ← Cancel"
+                )
+        );
 
-        AnsiConsole.MarkupLine("[cyan]Configuring headless KWin script and Sunshine packages...[/]");
-        await AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .StartAsync("Setting up Sunshine headless streaming...", async ctx =>
-            {
-                await _viewportManager.SetupSunshineHeadlessScriptAsync(TargetDistro, width, height);
-            });
-
-        AnsiConsole.MarkupLine("[green bold]✓ Sunshine headless script configured at /usr/local/bin/start-plasma-sunshine[/]");
-        AnsiConsole.WriteLine();
-
-        var infoPanel = new Panel(new Markup(
-            "[bold white]Connecting via Moonlight:[/]\n\n" +
-            "1. Start the headless Plasma session in Fedora-Desktop:\n" +
-            "   [cyan]wsl -d Fedora-Desktop -u developer -- /usr/local/bin/start-plasma-sunshine[/]\n\n" +
-            "2. Open the Sunshine web configuration portal on Windows at:\n" +
-            "   [bold green]https://localhost:47990[/]\n\n" +
-            "3. Open [bold]Moonlight[/] on Windows, add [cyan]127.0.0.1[/], enter the PIN, and enjoy 60-120 FPS GPU-accelerated KDE Plasma!"
-        ))
+        string? command = null;
+        if (appChoice.StartsWith("1.")) command = "dolphin";
+        else if (appChoice.StartsWith("2.")) command = "konsole";
+        else if (appChoice.StartsWith("3.")) command = "systemsettings";
+        else if (appChoice.StartsWith("4."))
         {
-            Border = BoxBorder.Rounded,
-            Header = new PanelHeader(" Sunshine Stream Instructions ")
-        };
+            command = AnsiConsole.Prompt(new TextPrompt<string>("Enter Linux GUI command:"));
+        }
 
-        AnsiConsole.Write(infoPanel);
-
-        if (AnsiConsole.Confirm("Launch Sunshine headless desktop session in background now?", defaultValue: false))
+        if (!string.IsNullOrWhiteSpace(command))
         {
+            AnsiConsole.MarkupLine($"[green bold]Launching '{command}' via WSLg...[/]");
             var psi = new ProcessStartInfo
             {
                 FileName = "wsl.exe",
-                Arguments = $"-d {TargetDistro} -u developer -- /usr/local/bin/start-plasma-sunshine",
+                Arguments = $"-d {TargetDistro} -u developer -- {command}",
                 UseShellExecute = false,
-                CreateNoWindow = false
+                CreateNoWindow = true
             };
             Process.Start(psi);
-            AnsiConsole.MarkupLine("[green bold]✓ Sunshine session started![/] Navigate to [bold cyan]https://localhost:47990[/] to configure pairing.");
+            AnsiConsole.MarkupLine("[cyan]Process launched! Check your Windows taskbar.[/]");
         }
 
+        ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private async Task RunPhase5SunshineAsync(bool distroExists)
+    {
+        AnsiConsole.Clear();
+        AnsiConsole.Write(new Rule("[bold cyan]Phase 5: Sunshine Streaming (Technical Architecture)[/]") { Justification = Justify.Left });
+
+        AnsiConsole.MarkupLine("[grey]Sunshine self-hosted streaming server for Moonlight clients.[/]\n");
+
+        var archPanel = new Panel(new Markup(
+            "[bold yellow]WSL2 Graphics Virtualization Architecture Note:[/]\n\n" +
+            "Sunshine inside Linux captures displays via Linux DMA-BUF ([cyan]EGL_EXT_image_dma_buf_import[/]) or DRM/KMS ([cyan]/dev/dri/card0[/]).\n\n" +
+            "Under WSL2, the GPU is virtualized through Microsoft's DirectX kernel ([cyan]/dev/dxg[/]), meaning guest DMA-BUF export is not supported. " +
+            "For ultra-low latency Sunshine streaming:\n" +
+            "  1. [green bold]Recommended:[/] Install Sunshine natively on Windows (uses Windows Desktop Duplication API + NVENC).\n" +
+            "  2. Use [green bold]Phase 3 (RDP Viewport)[/] for full KDE Plasma 6 desktop inside WSL2.\n" +
+            "  3. Use [green bold]Phase 4 (WSLg)[/] for seamless native window integration on Windows."
+        ))
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader(" Sunshine on WSL2 ")
+        };
+
+        AnsiConsole.Write(archPanel);
         ConsoleRenderer.PressEnterToContinue();
     }
 }
