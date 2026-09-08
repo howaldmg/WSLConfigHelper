@@ -36,10 +36,10 @@ public class DistroBaseAndDesktopEnvironmentTests
         Assert.Contains("/etc/ld.so.conf.d/ld.wsl.conf", recorder.LastBashCommand);
         Assert.Contains("export GALLIUM_DRIVER=d3d12", recorder.LastBashCommand);
         Assert.Contains("apt-get update -y", recorder.LastBashCommand);
-        Assert.Contains("apt-get install -y mesa-va-drivers mesa-vulkan-drivers libgl1-mesa-dri mesa-utils", recorder.LastBashCommand);
+        Assert.Contains("apt-get install -y mesa-va-drivers mesa-vulkan-drivers libgl1-mesa-dri mesa-utils xvfb", recorder.LastBashCommand);
 
         await ubuntu.EnsureUserAsync("Ubuntu-XFCE", "developer", recorder);
-        Assert.Contains("usermod -aG sudo,input \"developer\"", recorder.LastBashCommand);
+        Assert.Contains("usermod -aG sudo,input,ssl-cert \"developer\"", recorder.LastBashCommand);
         Assert.Contains("echo \"developer:developer\" | chpasswd", recorder.LastBashCommand);
     }
 

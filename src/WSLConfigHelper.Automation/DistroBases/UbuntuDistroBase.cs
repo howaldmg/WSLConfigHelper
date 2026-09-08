@@ -44,8 +44,8 @@ public class UbuntuDistroBase : IDistroBase
                 useradd -m -s /bin/bash "{username}"
             fi
 
-            # Add to sudo and input groups
-            usermod -aG sudo,input "{username}" 2>/dev/null || true
+            # Add to sudo, input, and ssl-cert groups (xrdp on Ubuntu requires ssl-cert membership)
+            usermod -aG sudo,input,ssl-cert "{username}" 2>/dev/null || true
 
             # Set initial password matching username
             echo "{username}:{username}" | chpasswd

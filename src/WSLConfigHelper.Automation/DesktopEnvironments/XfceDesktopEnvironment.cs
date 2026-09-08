@@ -34,9 +34,11 @@ public class XfceDesktopEnvironment : IDesktopEnvironment
                 "xfce4",
                 "xfce4-goodies",
                 "xrdp",
-                "pipewire"
+                "xorgxrdp",
+                "pipewire",
+                "wireplumber"
             },
-            _ => new[] { "xfce4", "xrdp" }
+            _ => new[] { "xfce4", "xrdp", "xorgxrdp" }
         };
     }
 
