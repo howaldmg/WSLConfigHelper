@@ -27,6 +27,9 @@ public class FedoraDistroBase : IDistroBase
 
             # 3. Install Mesa drivers, OpenGL utilities, and virtual framebuffer for diagnostics
             dnf install -y mesa-dri-drivers mesa-vulkan-drivers glx-utils xorg-x11-server-Xvfb
+
+            # 4. Disable NetworkManager (WSL handles mirrored interfaces; NM causes DHCP flapping on virtual loopback devices)
+            systemctl disable --now NetworkManager 2>/dev/null || true
             """;
 
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: ct);
