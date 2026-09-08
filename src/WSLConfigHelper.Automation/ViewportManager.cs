@@ -155,18 +155,23 @@ public class ViewportManager
             export LIBGL_ALWAYS_SOFTWARE=0
             export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
             export GALLIUM_DRIVER=d3d12
+            export KWIN_WAYLAND_NO_PERMISSION_CHECKS=1
 
             if [ ! -f "$HOME/krdp.crt" ] || [ ! -f "$HOME/krdp.key" ]; then
                 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$HOME/krdp.key" -out "$HOME/krdp.crt" -days 365 -subj "/CN=Fedora-Desktop"
             fi
 
+            rm -f "$XDG_RUNTIME_DIR/plasma-display"*
+
             echo "Starting KDE Plasma virtual headless display ({width}x{height})..."
-            kwin_wayland --virtual --width {width} --height {height} --exit-with-session plasma-workspace &
+            kwin_wayland --virtual --no-lockscreen --socket plasma-display --width {width} --height {height} --exit-with-session plasma-workspace &
             KWIN_PID=$!
             sleep 2
 
             echo "Starting KDE native RDP server on port {port}..."
-            /usr/bin/krdpserver --port {port} --username developer --password developer --certificate "$HOME/krdp.crt" --certificate-key "$HOME/krdp.key" --plasma &
+            export WAYLAND_DISPLAY=plasma-display
+            export QT_QPA_PLATFORM=wayland
+            /usr/bin/krdpserver --port {port} --username developer --password developer --certificate "$HOME/krdp.crt" --certificate-key "$HOME/krdp.key" &
             KRDP_PID=$!
 
             echo "RDP server ready on port {port}!"
@@ -177,6 +182,39 @@ public class ViewportManager
             """;
 
         return await _runner.ExecuteInDistroAsync(distro, script, cancellationToken: cancellationToken);
+    }
+
+    public async Task<WslExecutionResult> EnableSystemdServiceAsync(
+        string distro,
+        string user = "developer",
+        CancellationToken cancellationToken = default)
+    {
+        var script = """
+            loginctl enable-linger developer 2>/dev/null || true
+            mkdir -p /home/developer/.config/systemd/user
+            cat << 'EOF' > /home/developer/.config/systemd/user/plasma-rdp.service
+            [Unit]
+            Description=KDE Plasma 6 Headless RDP Session
+            After=default.target pipewire.service
+            Wants=pipewire.service
+
+            [Service]
+            Type=simple
+            Environment=LIBGL_ALWAYS_SOFTWARE=0
+            Environment=MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+            Environment=GALLIUM_DRIVER=d3d12
+            ExecStart=/usr/local/bin/start-plasma-rdp
+            Restart=on-failure
+            RestartSec=3
+
+            [Install]
+            WantedBy=default.target
+            EOF
+            chown -R developer:developer /home/developer/.config/systemd
+            su - developer -c "systemctl --user daemon-reload && systemctl --user enable plasma-rdp.service && systemctl --user restart plasma-rdp.service"
+            """;
+
+        return await _runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: cancellationToken);
     }
 
     public Process LaunchRdpViewport(string distro, string user = "developer")
@@ -192,12 +230,12 @@ public class ViewportManager
         return Process.Start(psi)!;
     }
 
-    public Process LaunchWindowsMstsc(string address = "127.0.0.1:3390")
+    public Process LaunchWindowsMstsc(string target = "127.0.0.1:3390")
     {
         var psi = new ProcessStartInfo
         {
             FileName = "mstsc.exe",
-            Arguments = $"/v:{address}",
+            Arguments = target.EndsWith(".rdp", StringComparison.OrdinalIgnoreCase) ? target : $"/v:{target}",
             UseShellExecute = true
         };
 

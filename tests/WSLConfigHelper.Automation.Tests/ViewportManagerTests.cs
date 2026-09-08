@@ -80,8 +80,9 @@ public class ViewportManagerTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("Fedora-Desktop", recorder.LastDistro);
         Assert.Contains("start-plasma-rdp", recorder.LastBashCommand);
-        Assert.Contains("kwin_wayland --virtual --width 1920 --height 1080", recorder.LastBashCommand);
+        Assert.Contains("kwin_wayland --virtual --no-lockscreen --socket plasma-display --width 1920 --height 1080", recorder.LastBashCommand);
         Assert.Contains("/usr/bin/krdpserver --port 3390", recorder.LastBashCommand);
+        Assert.Contains("KWIN_WAYLAND_NO_PERMISSION_CHECKS=1", recorder.LastBashCommand);
         Assert.Contains("krdp.crt", recorder.LastBashCommand);
     }
 }

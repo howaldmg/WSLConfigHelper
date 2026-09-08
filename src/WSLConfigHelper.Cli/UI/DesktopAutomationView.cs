@@ -1,27 +1,32 @@
 using System.Diagnostics;
 using Spectre.Console;
 using WSLConfigHelper.Automation;
+using WSLConfigHelper.Automation.DesktopEnvironments;
+using WSLConfigHelper.Automation.DistroBases;
+using WSLConfigHelper.Automation.Workstations;
 using WSLConfigHelper.Core.Storage;
 
 namespace WSLConfigHelper.Cli.UI;
 
 public class DesktopAutomationView
 {
-    private const string TargetDistro = "Fedora-Desktop";
     private readonly DistroManager _distroManager;
     private readonly GpuConfigurator _gpuConfigurator;
-    private readonly PlasmaProvisioner _plasmaProvisioner;
     private readonly ViewportManager _viewportManager;
     private readonly WslConfigFileService _configFileService;
+    private readonly IWslProcessRunner _runner;
+    private readonly WorkstationRegistry _registry;
+    private WorkstationProfile _activeProfile;
 
     public DesktopAutomationView()
     {
-        var runner = new WslProcessRunner();
-        _distroManager = new DistroManager(runner);
-        _gpuConfigurator = new GpuConfigurator(runner);
-        _plasmaProvisioner = new PlasmaProvisioner(runner);
-        _viewportManager = new ViewportManager(runner);
+        _runner = new WslProcessRunner();
+        _distroManager = new DistroManager(_runner);
+        _gpuConfigurator = new GpuConfigurator(_runner);
+        _viewportManager = new ViewportManager(_runner);
         _configFileService = new WslConfigFileService();
+        _registry = new WorkstationRegistry();
+        _activeProfile = _registry.GetProfile("fedora-kde")!;
     }
 
     public async Task ShowAsync()
@@ -29,20 +34,22 @@ public class DesktopAutomationView
         while (true)
         {
             AnsiConsole.Clear();
-            var rule = new Rule("[bold cyan]WSL Desktop Automation & Viewport[/] [grey](KDE Plasma 6 + GPU-PV)[/]")
+            var rule = new Rule($"[bold cyan]WSL Desktop Workstation Manager[/] [grey]({_activeProfile.DisplayName})[/]")
             {
                 Justification = Justify.Left
             };
             AnsiConsole.Write(rule);
 
-            bool distroExists = await _distroManager.DistroExistsAsync(TargetDistro);
+            bool distroExists = await _distroManager.DistroExistsAsync(_activeProfile.DistroName);
             var statusBadge = distroExists ? "[green bold]Installed / Available[/]" : "[yellow]Not Yet Provisioned[/]";
 
             var grid = new Grid();
             grid.AddColumn(new GridColumn().PadRight(2));
             grid.AddColumn(new GridColumn());
-            grid.AddRow("[grey]Target Distribution:[/] [bold white]" + TargetDistro + "[/]", $"[grey]Status:[/] {statusBadge}");
-            grid.AddRow("[grey]Target Desktop:[/] [white]KDE Plasma 6 (Full)[/]", "[grey]GPU Backend:[/] [white]Mesa D3D12 (DirectX 12 via /dev/dxg)[/]");
+            grid.AddRow("[grey]Workstation Profile:[/] [bold white]" + _activeProfile.DisplayName + "[/]", $"[grey]Distro Status:[/] {statusBadge}");
+            grid.AddRow("[grey]WSL Instance Name:[/] [white]" + _activeProfile.DistroName + "[/]", $"[grey]RDP Port:[/] [bold cyan]{_activeProfile.DesktopEnvironment.DefaultRdpPort}[/]");
+            grid.AddRow("[grey]Base Distribution:[/] [white]" + _activeProfile.DistroBase.DisplayName + $" ({_activeProfile.DistroBase.PackageManager})[/]", "[grey]GPU Backend:[/] [white]Mesa D3D12 (/dev/dxg)[/]");
+            grid.AddRow("[grey]Desktop Shell:[/] [white]" + _activeProfile.DesktopEnvironment.DisplayName + $" ({_activeProfile.DesktopEnvironment.Protocol})[/]", "[grey]Default User:[/] [white]developer[/]");
 
             AnsiConsole.Write(new Panel(grid)
             {
@@ -56,12 +63,13 @@ public class DesktopAutomationView
                 .PageSize(10)
                 .AddChoices(
                     "1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
-                    "2. 📦 Phase 1: Provision Fedora-Desktop & GPU-PV (Mesa D3D12)",
-                    "3. 🎨 Phase 2: Install Full KDE Plasma Desktop & Sound",
-                    "4. 🖥️ Phase 3: Launch Full Desktop (KDE 6 RDP Viewport - mstsc)",
-                    "5. 🪟 Phase 4: Launch Native KDE Apps in WSLg (Dolphin / Konsole)",
-                    "6. ☀️ Phase 5: Sunshine Streaming Setup (Experimental)",
-                    "7. 🚪 ← Back to Main Menu"
+                    $"2. 📦 Phase 1: Provision {_activeProfile.DistroName} & GPU-PV (Mesa D3D12)",
+                    $"3. 🎨 Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio",
+                    $"4. 🖥️ Phase 3: Launch Full Desktop (RDP Viewport : {_activeProfile.DesktopEnvironment.DefaultRdpPort})",
+                    $"5. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
+                    "6. 🔄 Switch / Create Workstation Profile",
+                    "7. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
+                    "8. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
@@ -88,6 +96,10 @@ public class DesktopAutomationView
             }
             else if (choice.StartsWith("6."))
             {
+                await SwitchOrCreateProfileAsync();
+            }
+            else if (choice.StartsWith("7."))
+            {
                 await RunPhase5SunshineAsync(distroExists);
             }
             else
@@ -100,24 +112,24 @@ public class DesktopAutomationView
     private async Task RunDiagnosticsAsync(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule("[bold cyan]System Diagnostics & Hardware Audit[/]") { Justification = Justify.Left });
+        AnsiConsole.Write(new Rule($"[bold cyan]System Diagnostics & Hardware Audit: {_activeProfile.DisplayName}[/]") { Justification = Justify.Left });
 
         if (!distroExists)
         {
-            AnsiConsole.MarkupLine($"[yellow]'{TargetDistro}' is not yet provisioned.[/] Run Phase 1 from the menu to create it.");
+            AnsiConsole.MarkupLine($"[yellow]'{_activeProfile.DistroName}' is not yet provisioned.[/] Run Phase 1 from the menu to create it.");
             ConsoleRenderer.PressEnterToContinue();
             return;
         }
 
         await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
-            .StartAsync("Auditing GPU-PV and Plasma subsystems...", async ctx =>
+            .StartAsync("Auditing GPU-PV and Desktop subsystems...", async ctx =>
             {
-                ctx.Status("Checking /dev/dxg device...");
-                var gpuReport = await _gpuConfigurator.RunGpuDiagnosticsAsync(TargetDistro);
+                ctx.Status("Checking /dev/dxg device & graphics drivers...");
+                var gpuReport = await _gpuConfigurator.RunGpuDiagnosticsAsync(_activeProfile.DistroName);
 
-                ctx.Status("Checking Plasma & KWin components...");
-                var plasmaReport = await _plasmaProvisioner.RunPlasmaDiagnosticsAsync(TargetDistro);
+                ctx.Status($"Checking {_activeProfile.DesktopEnvironment.DisplayName} components...");
+                var desktopProbe = await _activeProfile.DesktopEnvironment.ProbeDesktopAsync(_activeProfile.DistroName, _runner);
 
                 var table = new Table().Border(TableBorder.Rounded).BorderColor(Color.Grey);
                 table.AddColumn("[bold]Component[/]");
@@ -143,21 +155,15 @@ public class DesktopAutomationView
                 );
 
                 table.AddRow(
-                    "KDE KWin Wayland Compositor",
-                    plasmaReport.KWinInstalled ? "[green]INSTALLED[/]" : "[yellow]NOT INSTALLED[/]",
-                    plasmaReport.KWinVersion ?? "Run Phase 2 to install KDE Plasma"
+                    $"{_activeProfile.DesktopEnvironment.DisplayName} Shell ({desktopProbe.CompositorOrWm})",
+                    desktopProbe.IsInstalled ? "[green]INSTALLED[/]" : "[yellow]NOT INSTALLED[/]",
+                    desktopProbe.Version ?? $"Run Phase 2 to install {_activeProfile.DesktopEnvironment.DisplayName}"
                 );
 
                 table.AddRow(
-                    "PipeWire Audio Server",
-                    plasmaReport.PipeWireInstalled ? "[green]AVAILABLE[/]" : "[yellow]NOT INSTALLED[/]",
-                    plasmaReport.PipeWireInstalled ? "Ready for desktop & Sunshine streaming" : "Run Phase 2 to install"
-                );
-
-                table.AddRow(
-                    "Developer User (sudo)",
-                    plasmaReport.SudoConfigured ? "[green]CONFIGURED[/]" : "[yellow]NOT CONFIGURED[/]",
-                    plasmaReport.SudoConfigured ? "Passwordless wheel sudo enabled" : "Run Phase 2 to configure"
+                    "Audio Subsystem",
+                    desktopProbe.AudioReady ? "[green]READY[/]" : "[yellow]NOT READY[/]",
+                    desktopProbe.AudioReady ? "PipeWire sound server active" : "Run Phase 2 to configure"
                 );
 
                 AnsiConsole.Write(table);
@@ -169,12 +175,12 @@ public class DesktopAutomationView
     private async Task RunPhase1Async(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule("[bold cyan]Phase 1: Provision Fedora-Desktop & Configure GPU-PV[/]") { Justification = Justify.Left });
-        AnsiConsole.MarkupLine("[grey]This phase will install FedoraLinux-43 as 'Fedora-Desktop', enable systemd, and configure Mesa D3D12.[/]\n");
+        AnsiConsole.Write(new Rule($"[bold cyan]Phase 1: Provision {_activeProfile.DistroName} & Configure GPU-PV[/]") { Justification = Justify.Left });
+        AnsiConsole.MarkupLine($"[grey]This phase will install {_activeProfile.DistroBase.DefaultWslImage} as '{_activeProfile.DistroName}', enable systemd, and configure Mesa D3D12.[/]\n");
 
         if (!distroExists)
         {
-            if (!AnsiConsole.Confirm($"Download and provision fresh WSL instance '[bold]{TargetDistro}[/]' from FedoraLinux-43?", defaultValue: true))
+            if (!AnsiConsole.Confirm($"Download and provision fresh WSL instance '[bold]{_activeProfile.DistroName}[/]' from {_activeProfile.DistroBase.DefaultWslImage}?", defaultValue: true))
             {
                 return;
             }
@@ -182,9 +188,9 @@ public class DesktopAutomationView
             AnsiConsole.MarkupLine("[cyan]Starting download and installation via WSL... (this may take a few minutes)[/]");
             var installResult = await AnsiConsole.Status()
                 .Spinner(Spinner.Known.Dots)
-                .StartAsync("Downloading and registering Fedora-Desktop...", async ctx =>
+                .StartAsync($"Downloading and registering {_activeProfile.DistroName}...", async ctx =>
                 {
-                    return await _distroManager.InstallDistroAsync("FedoraLinux-43", TargetDistro, line =>
+                    return await _distroManager.InstallDistroAsync(_activeProfile.DistroBase.DefaultWslImage, _activeProfile.DistroName, line =>
                     {
                         AnsiConsole.MarkupLine($"[grey]{Markup.Escape(line)}[/]");
                     });
@@ -197,43 +203,32 @@ public class DesktopAutomationView
                 return;
             }
 
-            AnsiConsole.MarkupLine("[green bold]✓ Distribution 'Fedora-Desktop' successfully registered![/]");
+            AnsiConsole.MarkupLine($"[green bold]✓ Distribution '{_activeProfile.DistroName}' successfully registered![/]");
         }
         else
         {
-            AnsiConsole.MarkupLine($"[green]'{TargetDistro}' already exists.[/] Proceeding to GPU and system configuration...");
+            AnsiConsole.MarkupLine($"[green]'{_activeProfile.DistroName}' already exists.[/] Proceeding to GPU and system configuration...");
         }
 
         AnsiConsole.MarkupLine("[cyan]Configuring /etc/wsl.conf and systemd...[/]");
-        await _gpuConfigurator.ConfigureWslConfAsync(TargetDistro, defaultUser: "developer");
+        await _activeProfile.DistroBase.ConfigureWslConfAsync(_activeProfile.DistroName, defaultUser: "developer", _runner);
 
-        AnsiConsole.MarkupLine("[cyan]Configuring dynamic linker & Mesa D3D12 environment...[/]");
-        await _gpuConfigurator.ConfigureGpuEnvironmentAsync(TargetDistro);
-
-        if (AnsiConsole.Confirm("Install Mesa D3D12 drivers and glx-utils via dnf now?", defaultValue: true))
-        {
-            AnsiConsole.MarkupLine("[cyan]Running dnf install (mesa-dri-drivers, mesa-vulkan-drivers, glx-utils)...[/]");
-            await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .StartAsync("Installing graphics drivers...", async ctx =>
-                {
-                    var res = await _gpuConfigurator.InstallMesaDriversAsync(TargetDistro, line =>
-                    {
-                        if (line.StartsWith("[stderr]"))
-                            AnsiConsole.MarkupLine($"[dim]{Markup.Escape(line)}[/]");
-                    });
-                });
-
-            AnsiConsole.MarkupLine("[green bold]✓ Graphics driver packages installed![/]");
-        }
+        AnsiConsole.MarkupLine("[cyan]Configuring GPU acceleration & Mesa D3D12 drivers...[/]");
+        await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync("Configuring dynamic linker & graphics packages...", async ctx =>
+            {
+                await _activeProfile.DistroBase.ConfigureGpuAccelerationAsync(_activeProfile.DistroName, _runner);
+            });
+        AnsiConsole.MarkupLine("[green bold]✓ Graphics driver packages and linker paths configured![/]");
 
         // Restart instance to ensure systemd and drivers load cleanly
-        AnsiConsole.MarkupLine("[cyan]Restarting Fedora-Desktop to apply configuration...[/]");
-        await _distroManager.TerminateDistroAsync(TargetDistro);
+        AnsiConsole.MarkupLine($"[cyan]Restarting {_activeProfile.DistroName} to apply configuration...[/]");
+        await _distroManager.TerminateDistroAsync(_activeProfile.DistroName);
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold green]Checkpoint 1 Verification:[/]");
-        var gpuReport = await _gpuConfigurator.RunGpuDiagnosticsAsync(TargetDistro);
+        var gpuReport = await _gpuConfigurator.RunGpuDiagnosticsAsync(_activeProfile.DistroName);
 
         if (gpuReport.DirectRenderingEnabled)
         {
@@ -252,36 +247,37 @@ public class DesktopAutomationView
     private async Task RunPhase2Async(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule("[bold cyan]Phase 2: Install Full KDE Plasma Desktop Environment[/]") { Justification = Justify.Left });
+        AnsiConsole.Write(new Rule($"[bold cyan]Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio[/]") { Justification = Justify.Left });
 
         if (!distroExists)
         {
-            AnsiConsole.MarkupLine($"[yellow]'{TargetDistro}' is not yet provisioned.[/] Run Phase 1 first.");
+            AnsiConsole.MarkupLine($"[yellow]'{_activeProfile.DistroName}' is not yet provisioned.[/] Run Phase 1 first.");
             ConsoleRenderer.PressEnterToContinue();
             return;
         }
 
-        AnsiConsole.MarkupLine("[grey]This will set up the 'developer' user (wheel sudo), and install the full @kde-desktop-environment package group.[/]\n");
+        AnsiConsole.MarkupLine($"[grey]This will set up the 'developer' user (sudo), and install {_activeProfile.DesktopEnvironment.DisplayName} packages.[/]\n");
 
         if (!AnsiConsole.Confirm("Begin Phase 2 installation?", defaultValue: true))
         {
             return;
         }
 
-        AnsiConsole.MarkupLine("[cyan]Configuring unprivileged 'developer' user with passwordless sudo...[/]");
-        await _plasmaProvisioner.EnsureUserAsync(TargetDistro, "developer");
+        AnsiConsole.MarkupLine("[cyan]Configuring unprivileged 'developer' user with passwordless sudo & lingering...[/]");
+        await _activeProfile.DistroBase.EnsureUserAsync(_activeProfile.DistroName, "developer", _runner);
         AnsiConsole.MarkupLine("[green]✓ User 'developer' configured.[/]");
 
-        AnsiConsole.MarkupLine("[cyan]Starting dnf installation of KDE Plasma, PipeWire, and fonts...[/]");
-        AnsiConsole.MarkupLine("[grey]Note: The full KDE desktop group contains extensive tools and will take a few minutes to download and assemble.[/]");
+        var packages = _activeProfile.DesktopEnvironment.GetPackageList(_activeProfile.DistroBase.PackageManager);
+        AnsiConsole.MarkupLine($"[cyan]Starting {_activeProfile.DistroBase.PackageManager} installation of {_activeProfile.DesktopEnvironment.DisplayName} packages...[/]");
+        AnsiConsole.MarkupLine($"[grey]Packages: {string.Join(", ", packages)}[/]");
 
         await AnsiConsole.Status()
             .Spinner(Spinner.Known.Dots)
-            .StartAsync("Installing KDE Plasma desktop environment...", async ctx =>
+            .StartAsync($"Installing {_activeProfile.DesktopEnvironment.DisplayName} desktop environment...", async ctx =>
             {
-                var result = await _plasmaProvisioner.InstallPlasmaDesktopAsync(TargetDistro, fullEnvironment: true, line =>
+                await _activeProfile.DistroBase.InstallPackagesAsync(_activeProfile.DistroName, packages, _runner, line =>
                 {
-                    if (line.Contains("Installing:") || line.Contains("Complete!"))
+                    if (line.Contains("Installing:") || line.Contains("Complete!") || line.Contains("Setting up"))
                     {
                         AnsiConsole.MarkupLine($"[dim]{Markup.Escape(line)}[/]");
                     }
@@ -290,17 +286,17 @@ public class DesktopAutomationView
 
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold green]Checkpoint 2 Verification:[/]");
-        var plasmaReport = await _plasmaProvisioner.RunPlasmaDiagnosticsAsync(TargetDistro);
+        var probe = await _activeProfile.DesktopEnvironment.ProbeDesktopAsync(_activeProfile.DistroName, _runner);
 
-        if (plasmaReport.KWinInstalled)
+        if (probe.IsInstalled)
         {
-            AnsiConsole.MarkupLine($"[green bold]✓ KDE Plasma & KWin Installed:[/] [bold cyan]{Markup.Escape(plasmaReport.KWinVersion ?? "KWin Wayland")}[/]");
-            AnsiConsole.MarkupLine($"[green]✓ PipeWire Audio:[/] {(plasmaReport.PipeWireInstalled ? "Ready" : "Missing")}");
+            AnsiConsole.MarkupLine($"[green bold]✓ {_activeProfile.DesktopEnvironment.DisplayName} Installed:[/] [bold cyan]{Markup.Escape(probe.Version ?? probe.CompositorOrWm)}[/]");
+            AnsiConsole.MarkupLine($"[green]✓ Audio Subsystem:[/] {(probe.AudioReady ? "Ready" : "Missing / Inactive")}");
             AnsiConsole.MarkupLine("[green bold]✓ Phase 2 complete! Ready for Viewport setup.[/]");
         }
         else
         {
-            AnsiConsole.MarkupLine("[red]KWin Wayland was not detected. Please inspect package installation logs.[/]");
+            AnsiConsole.MarkupLine($"[red]{_activeProfile.DesktopEnvironment.DisplayName} was not detected. Please inspect package installation logs.[/]");
         }
 
         ConsoleRenderer.PressEnterToContinue();
@@ -309,88 +305,134 @@ public class DesktopAutomationView
     private async Task RunPhase3RdpAsync(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule("[bold cyan]Phase 3: Launch Full Desktop (KDE Plasma 6 RDP Viewport)[/]") { Justification = Justify.Left });
+        AnsiConsole.Write(new Rule($"[bold cyan]Phase 3: Launch Full Desktop ({_activeProfile.DesktopEnvironment.DisplayName} RDP Viewport)[/]") { Justification = Justify.Left });
 
         if (!distroExists)
         {
-            AnsiConsole.MarkupLine($"[yellow]'{TargetDistro}' is not yet provisioned.[/] Complete Phase 1 and Phase 2 first.");
+            AnsiConsole.MarkupLine($"[yellow]'{_activeProfile.DistroName}' is not yet provisioned.[/] Complete Phase 1 and Phase 2 first.");
             ConsoleRenderer.PressEnterToContinue();
             return;
         }
 
-        AnsiConsole.MarkupLine("[grey]Deploys a virtual 60fps KDE Plasma 6 desktop and exposes it via KDE's native RDP server ('krdp') on port 3390.[/]\n");
+        int defaultPort = _activeProfile.DesktopEnvironment.DefaultRdpPort;
+        AnsiConsole.MarkupLine($"[grey]Deploys a virtual 60fps {_activeProfile.DesktopEnvironment.DisplayName} desktop exposed via {_activeProfile.DesktopEnvironment.Protocol} on port {defaultPort}.[/]\n");
 
         int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
         int height = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Height (pixels):").DefaultValue(1080));
-        int port = 3390;
+        int port = AnsiConsole.Prompt(new TextPrompt<int>("RDP Port:").DefaultValue(defaultPort));
 
-        AnsiConsole.MarkupLine("[cyan]Generating startup script and TLS certificate...[/]");
-        await _viewportManager.SetupRdpViewportScriptAsync(TargetDistro, width, height, port);
-        AnsiConsole.MarkupLine("[green]✓ Script generated at /usr/local/bin/start-plasma-rdp[/]");
+        AnsiConsole.MarkupLine("[cyan]Configuring viewport service and security keys...[/]");
+        var options = new ViewportOptions(Width: width, Height: height, Port: port, User: "developer");
+        await _activeProfile.DesktopEnvironment.ConfigureViewportServiceAsync(_activeProfile.DistroName, _runner, options);
+        AnsiConsole.MarkupLine($"[green]✓ Viewport service configured for {_activeProfile.DesktopEnvironment.DisplayName} on port {port}![/]");
+
+        // Generate Windows .rdp file and .cmd launcher
+        await GenerateWindowsLaunchersAsync(_activeProfile.DistroName, port, width, height);
 
         var infoPanel = new Panel(new Markup(
             "[bold white]Remote Desktop Connection Info:[/]\n\n" +
             $"• Address:  [bold green]127.0.0.1:{port}[/]\n" +
             "• Username: [bold cyan]developer[/]\n" +
             "• Password: [bold cyan]developer[/]\n\n" +
-            "[grey]Hardware acceleration is fully active via Mesa D3D12 (RTX 4080).[/]"
+            $"[grey]Generated launchers in current directory:[/] [cyan]{_activeProfile.DistroName}.rdp[/], [cyan]connect-{_activeProfile.DistroName.ToLowerInvariant()}.cmd[/]\n" +
+            "[grey]Hardware acceleration is active via Mesa D3D12 (RTX 4080).[/]"
         ))
         {
             Border = BoxBorder.Rounded,
-            Header = new PanelHeader(" RDP Viewport Details ")
+            Header = new PanelHeader($" {_activeProfile.DesktopEnvironment.DisplayName} RDP Viewport ")
         };
         AnsiConsole.Write(infoPanel);
         AnsiConsole.WriteLine();
 
-        if (AnsiConsole.Confirm("Start KDE Plasma session and open Windows Remote Desktop (mstsc) now?", defaultValue: true))
+        if (AnsiConsole.Confirm($"Open Windows Remote Desktop (mstsc) to 127.0.0.1:{port} now?", defaultValue: true))
         {
-            AnsiConsole.MarkupLine("[green bold]Starting KDE Plasma session in background...[/]");
-            _viewportManager.LaunchRdpViewport(TargetDistro, "developer");
-
-            // Give it 2 seconds to initialize KWin and krdpserver
-            await Task.Delay(2000);
-
             AnsiConsole.MarkupLine("[cyan]Opening Windows Remote Desktop Connection (mstsc.exe)...[/]");
-            _viewportManager.LaunchWindowsMstsc($"127.0.0.1:{port}");
+            _viewportManager.LaunchWindowsMstsc($"{_activeProfile.DistroName}.rdp");
             AnsiConsole.MarkupLine("[green]✓ Client launched! Enter 'developer' / 'developer' when prompted.[/]");
         }
 
         ConsoleRenderer.PressEnterToContinue();
     }
 
+    private async Task GenerateWindowsLaunchersAsync(string distroName, int port, int width, int height)
+    {
+        try
+        {
+            var rdpContent = $"""
+                full address:s:127.0.0.1:{port}
+                username:s:developer
+                prompt for credentials:i:1
+                desktopwidth:i:{width}
+                desktopheight:i:{height}
+                session bpp:i:32
+                audiomode:i:0
+                smart sizing:i:1
+                screen mode id:i:2
+                use multimon:i:0
+                connection type:i:7
+                networkautodetect:i:1
+                bandwidthautodetect:i:1
+                """;
+
+            await File.WriteAllTextAsync($"{distroName}.rdp", rdpContent);
+
+            var cmdContent = $"""
+                @echo off
+                echo Waking up {distroName}...
+                wsl -d {distroName} -u developer -- true
+                echo Connecting to Remote Desktop on port {port}...
+                start mstsc {distroName}.rdp
+                """;
+
+            await File.WriteAllTextAsync($"connect-{distroName.ToLowerInvariant()}.cmd", cmdContent);
+        }
+        catch
+        {
+            // Best effort convenience generation
+        }
+    }
+
     private async Task RunPhase4WslgAppsAsync(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule("[bold cyan]Phase 4: Launch Native KDE Apps in WSLg[/]") { Justification = Justify.Left });
+        AnsiConsole.Write(new Rule($"[bold cyan]Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg[/]") { Justification = Justify.Left });
 
         if (!distroExists)
         {
-            AnsiConsole.MarkupLine($"[yellow]'{TargetDistro}' is not yet provisioned.[/] Complete Phase 1 and Phase 2 first.");
+            AnsiConsole.MarkupLine($"[yellow]'{_activeProfile.DistroName}' is not yet provisioned.[/] Complete Phase 1 and Phase 2 first.");
             ConsoleRenderer.PressEnterToContinue();
             return;
         }
 
-        AnsiConsole.MarkupLine("[grey]Launches individual KDE desktop apps seamlessly onto your Windows desktop using WSLg.[/]\n");
+        AnsiConsole.MarkupLine($"[grey]Launches individual {_activeProfile.DesktopEnvironment.DisplayName} apps seamlessly onto your Windows desktop using WSLg.[/]\n");
+
+        var choices = _activeProfile.DesktopEnvironment.RecommendedApps
+            .Select(app => $"{app.Name} ({app.Command}) - {app.Category}")
+            .ToList();
+        choices.Add("✏️ Custom Linux GUI Command");
+        choices.Add("← Cancel");
 
         var appChoice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
                 .Title("[bold]Select an application to launch on Windows:[/]")
-                .AddChoices(
-                    "1. 📁 Dolphin (KDE File Manager)",
-                    "2. 💻 Konsole (KDE Terminal)",
-                    "3. ⚙️ System Settings (systemsettings)",
-                    "4. ✏️ Custom Linux GUI Command",
-                    "5. ← Cancel"
-                )
+                .AddChoices(choices)
         );
 
+        if (appChoice == "← Cancel")
+        {
+            return;
+        }
+
         string? command = null;
-        if (appChoice.StartsWith("1.")) command = "dolphin";
-        else if (appChoice.StartsWith("2.")) command = "konsole";
-        else if (appChoice.StartsWith("3.")) command = "systemsettings";
-        else if (appChoice.StartsWith("4."))
+        if (appChoice == "✏️ Custom Linux GUI Command")
         {
             command = AnsiConsole.Prompt(new TextPrompt<string>("Enter Linux GUI command:"));
+        }
+        else
+        {
+            var matchedApp = _activeProfile.DesktopEnvironment.RecommendedApps
+                .FirstOrDefault(app => appChoice.StartsWith(app.Name));
+            command = matchedApp?.Command;
         }
 
         if (!string.IsNullOrWhiteSpace(command))
@@ -399,12 +441,84 @@ public class DesktopAutomationView
             var psi = new ProcessStartInfo
             {
                 FileName = "wsl.exe",
-                Arguments = $"-d {TargetDistro} -u developer -- {command}",
+                Arguments = $"-d {_activeProfile.DistroName} -u developer -- {command}",
                 UseShellExecute = false,
                 CreateNoWindow = true
             };
             Process.Start(psi);
             AnsiConsole.MarkupLine("[cyan]Process launched! Check your Windows taskbar.[/]");
+        }
+
+        ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private async Task SwitchOrCreateProfileAsync()
+    {
+        AnsiConsole.Clear();
+        AnsiConsole.Write(new Rule("[bold cyan]Workstation Profile Selection & Setup[/]") { Justification = Justify.Left });
+
+        var profiles = _registry.GetAllProfiles().ToList();
+        var menuChoices = new List<string>();
+
+        foreach (var p in profiles)
+        {
+            var activeMarker = p.Id == _activeProfile.Id ? " [bold green](Active)[/]" : "";
+            menuChoices.Add($"{p.DisplayName} [{p.DistroName} : {p.DesktopEnvironment.DefaultRdpPort}]{activeMarker}");
+        }
+        menuChoices.Add("🛠️ Create Custom Profile (Mix & Match Distro Base + Desktop)");
+        menuChoices.Add("← Cancel");
+
+        var choice = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[bold]Choose an existing profile to activate, or create a custom profile:[/]")
+                .PageSize(10)
+                .AddChoices(menuChoices)
+        );
+
+        if (choice == "← Cancel")
+        {
+            return;
+        }
+
+        if (choice.StartsWith("🛠️"))
+        {
+            AnsiConsole.MarkupLine("\n[bold cyan]1. Select Base Distribution:[/]");
+            var bases = _registry.GetAvailableDistroBases().ToList();
+            var baseChoice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Choose Distro Base:")
+                    .AddChoices(bases.Select(b => $"{b.DisplayName} ({b.PackageManager})"))
+            );
+            var selectedBase = bases.First(b => baseChoice.StartsWith(b.DisplayName));
+
+            AnsiConsole.MarkupLine("\n[bold cyan]2. Select Desktop Environment:[/]");
+            var des = _registry.GetAvailableDesktopEnvironments().ToList();
+            var deChoice = AnsiConsole.Prompt(
+                new SelectionPrompt<string>()
+                    .Title("Choose Desktop Environment:")
+                    .AddChoices(des.Select(d => $"{d.DisplayName} (Port {d.DefaultRdpPort})"))
+            );
+            var selectedDe = des.First(d => deChoice.StartsWith(d.DisplayName));
+
+            AnsiConsole.MarkupLine("\n[bold cyan]3. Enter WSL Instance Name:[/]");
+            string defaultName = $"{selectedBase.Id.ToUpperInvariant()}-{selectedDe.Id.ToUpperInvariant()}";
+            string customName = AnsiConsole.Prompt(
+                new TextPrompt<string>("WSL Distribution Instance Name:")
+                    .DefaultValue(defaultName)
+            );
+
+            var newProfile = _registry.CreateCustomProfile(selectedBase, selectedDe, customName);
+            _activeProfile = newProfile;
+            AnsiConsole.MarkupLine($"\n[green bold]✓ Custom profile created and activated: {newProfile.DisplayName}![/]");
+            ConsoleRenderer.PressEnterToContinue();
+            return;
+        }
+
+        var matched = profiles.FirstOrDefault(p => choice.StartsWith(p.DisplayName));
+        if (matched != null)
+        {
+            _activeProfile = matched;
+            AnsiConsole.MarkupLine($"\n[green bold]✓ Switched active profile to '{matched.DisplayName}'![/]");
         }
 
         ConsoleRenderer.PressEnterToContinue();
@@ -423,7 +537,7 @@ public class DesktopAutomationView
             "Under WSL2, the GPU is virtualized through Microsoft's DirectX kernel ([cyan]/dev/dxg[/]), meaning guest DMA-BUF export is not supported. " +
             "For ultra-low latency Sunshine streaming:\n" +
             "  1. [green bold]Recommended:[/] Install Sunshine natively on Windows (uses Windows Desktop Duplication API + NVENC).\n" +
-            "  2. Use [green bold]Phase 3 (RDP Viewport)[/] for full KDE Plasma 6 desktop inside WSL2.\n" +
+            "  2. Use [green bold]Phase 3 (RDP Viewport)[/] for full desktop inside WSL2.\n" +
             "  3. Use [green bold]Phase 4 (WSLg)[/] for seamless native window integration on Windows."
         ))
         {
