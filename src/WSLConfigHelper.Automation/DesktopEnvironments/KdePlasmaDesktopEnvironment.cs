@@ -112,8 +112,10 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
             mkdir -p "/home/{options.User}/.config"
             chown -R {options.User}:{options.User} "/home/{options.User}/.config"
 
-            # 4. Mask obexd bluetooth daemon to silence missing bluetooth hardware errors
-            systemctl --global mask obex.service 2>/dev/null || true
+            # 4. Silence missing bluetooth hardware errors (mask systemd service and remove D-Bus auto-activator)
+            systemctl --global mask obex.service dbus-org.bluez.obex.service 2>/dev/null || true
+            rm -f /usr/share/dbus-1/services/org.bluez.obex.service 2>/dev/null || true
+            killall -9 obexd 2>/dev/null || true
 
             # 5. Enable and start xrdp system service
             systemctl enable xrdp 2>/dev/null || true
