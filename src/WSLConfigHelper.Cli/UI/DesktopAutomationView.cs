@@ -467,8 +467,8 @@ public class DesktopAutomationView
 
         foreach (var p in profiles)
         {
-            var activeMarker = p.Id == _activeProfile.Id ? " [bold green](Active)[/]" : "";
-            menuChoices.Add($"{p.DisplayName} [{p.DistroName} : {p.DesktopEnvironment.DefaultRdpPort}]{activeMarker}");
+            var activeMarker = p.Id == _activeProfile.Id ? " (Active)" : "";
+            menuChoices.Add($"{p.DisplayName} ({p.DistroName} : {p.DesktopEnvironment.DefaultRdpPort}){activeMarker}");
         }
         menuChoices.Add("🛠️ Create Custom Profile (Mix & Match Distro Base + Desktop)");
         menuChoices.Add("← Cancel");
