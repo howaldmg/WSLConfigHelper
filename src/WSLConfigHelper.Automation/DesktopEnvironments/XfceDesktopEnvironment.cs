@@ -45,22 +45,33 @@ public class XfceDesktopEnvironment : IDesktopEnvironment
         IWslProcessRunner runner,
         CancellationToken ct = default)
     {
-        var script = "xfwm4 --version 2>&1 || xfce4-session --version 2>&1 || true";
+        var script = """
+            if command -v startxfce4 >/dev/null 2>&1; then
+                echo "INSTALLED:$(xfwm4 --version 2>&1 | head -n 1 || echo 'XFCE 4')"
+            elif command -v xfwm4 >/dev/null 2>&1; then
+                echo "INSTALLED:$(xfwm4 --version 2>&1 | head -n 1)"
+            else
+                echo "NOT_INSTALLED"
+            fi
+            systemctl is-active xrdp 2>&1 || true
+            """;
         var result = await runner.ExecuteInDistroAsync(distro, script, user: "developer", cancellationToken: ct);
 
-        bool installed = result.StandardOutput.Contains("xfwm4") || result.StandardOutput.Contains("xfce4");
+        bool installed = result.StandardOutput.Contains("INSTALLED:") && !result.StandardOutput.Contains("NOT_INSTALLED");
         string? version = null;
         if (installed)
         {
-            var lines = result.StandardOutput.Split('\n');
-            version = lines.FirstOrDefault(l => l.Contains("xfwm4") || l.Contains("xfce4"))?.Trim();
+            var line = result.StandardOutput.Split('\n').FirstOrDefault(l => l.StartsWith("INSTALLED:"));
+            version = line?.Replace("INSTALLED:", "").Trim();
         }
+
+        bool audio = result.StandardOutput.Contains("active");
 
         return new DesktopProbeResult(
             IsInstalled: installed,
             CompositorOrWm: "xfwm4",
             Version: version,
-            AudioReady: true,
+            AudioReady: audio,
             RawOutput: result.StandardOutput);
     }
 
@@ -76,17 +87,25 @@ public class XfceDesktopEnvironment : IDesktopEnvironment
                 sed -i '0,/^port=/s/^port=.*/port={options.Port}/' /etc/xrdp/xrdp.ini
             fi
 
-            # 2. Configure .xsession for user
+            # 2. Configure .xsession for XFCE 4
             cat << 'EOF' > "/home/{options.User}/.xsession"
+            #!/bin/bash
             export LIBGL_ALWAYS_SOFTWARE=0
             export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
             export GALLIUM_DRIVER=d3d12
+            export XDG_CURRENT_DESKTOP=XFCE
+            export XDG_SESSION_DESKTOP=xfce
+            export PULSE_SERVER=unix:/mnt/wslg/PulseServer
             exec startxfce4
             EOF
             chown {options.User}:{options.User} "/home/{options.User}/.xsession"
             chmod +x "/home/{options.User}/.xsession"
 
-            # 3. Enable and start xrdp system service
+            # 3. Ensure user .config directory exists and is owned by user
+            mkdir -p "/home/{options.User}/.config"
+            chown -R {options.User}:{options.User} "/home/{options.User}/.config"
+
+            # 4. Enable and start xrdp system service
             systemctl enable xrdp 2>/dev/null || true
             systemctl restart xrdp 2>/dev/null || true
             """;

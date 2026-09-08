@@ -68,8 +68,9 @@ public class DesktopAutomationView
                     $"4. 🖥️ Phase 3: Launch Full Desktop (RDP Viewport : {_activeProfile.DesktopEnvironment.DefaultRdpPort})",
                     $"5. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
                     "6. 🔄 Switch / Create Workstation Profile",
-                    "7. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
-                    "8. 🚪 ← Back to Main Menu"
+                    $"7. 🛑 Stop / Shutdown {_activeProfile.DistroName} (wsl --terminate)",
+                    "8. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
+                    "9. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
@@ -99,6 +100,10 @@ public class DesktopAutomationView
                 await SwitchOrCreateProfileAsync();
             }
             else if (choice.StartsWith("7."))
+            {
+                await StopWorkstationAsync();
+            }
+            else if (choice.StartsWith("8."))
             {
                 await RunPhase5SunshineAsync(distroExists);
             }
@@ -521,6 +526,14 @@ public class DesktopAutomationView
             AnsiConsole.MarkupLine($"\n[green bold]✓ Switched active profile to '{matched.DisplayName}'![/]");
         }
 
+        ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private async Task StopWorkstationAsync()
+    {
+        AnsiConsole.MarkupLine($"[cyan]Shutting down {_activeProfile.DistroName}...[/]");
+        await _distroManager.TerminateDistroAsync(_activeProfile.DistroName);
+        AnsiConsole.MarkupLine($"[green bold]✓ {_activeProfile.DistroName} successfully stopped.[/]");
         ConsoleRenderer.PressEnterToContinue();
     }
 
