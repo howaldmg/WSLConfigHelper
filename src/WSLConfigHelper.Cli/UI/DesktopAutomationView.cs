@@ -282,7 +282,8 @@ public class DesktopAutomationView
             {
                 await _activeProfile.DistroBase.InstallPackagesAsync(_activeProfile.DistroName, packages, _runner, line =>
                 {
-                    if (line.Contains("Installing:") || line.Contains("Complete!") || line.Contains("Setting up"))
+                    if (line.Contains("Installing:") || line.Contains("Complete!") || line.Contains("Setting up") ||
+                        line.Contains("download 0 B") || line.Contains("Already downloaded") || line.Contains("[Cache"))
                     {
                         AnsiConsole.MarkupLine($"[dim]{Markup.Escape(line)}[/]");
                     }

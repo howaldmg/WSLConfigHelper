@@ -2,17 +2,28 @@ namespace WSLConfigHelper.Automation.DistroBases;
 
 public class UbuntuDistroBase : IDistroBase
 {
+    private readonly PackageCacheHelper _cacheHelper;
+
     public string Id => "ubuntu";
     public string DisplayName => "Ubuntu 24.04 LTS";
     public string DefaultWslImage => "Ubuntu-24.04";
     public PackageManagerType PackageManager => PackageManagerType.Apt;
+
+    public UbuntuDistroBase(PackageCacheHelper? cacheHelper = null)
+    {
+        _cacheHelper = cacheHelper ?? new PackageCacheHelper();
+    }
 
     public async Task<WslExecutionResult> ConfigureGpuAccelerationAsync(
         string distro,
         IWslProcessRunner runner,
         CancellationToken ct = default)
     {
-        var script = """
+        var aptConf = PackageCacheHelper.GetAptConfigScript();
+        var mesaPackages = new[] { "mesa-va-drivers", "mesa-vulkan-drivers", "libgl1-mesa-dri", "mesa-utils", "xvfb" };
+        var mesaInstall = _cacheHelper.BuildAptInstallScript(Id, mesaPackages);
+
+        var script = $"""
             # 1. Wire WSL dynamic linker paths
             echo "/usr/lib/wsl/lib" > /etc/ld.so.conf.d/ld.wsl.conf
             ldconfig
@@ -25,9 +36,12 @@ public class UbuntuDistroBase : IDistroBase
             EOF
             chmod +x /etc/profile.d/wsl-d3d12.sh
 
-            # 3. Install Mesa drivers, OpenGL utilities, and virtual framebuffer for diagnostics
+            # 3. Configure APT cache persistence
+            {aptConf}
+
+            # 4. Install Mesa drivers, OpenGL utilities, and virtual framebuffer with package caching
             apt-get update -y
-            DEBIAN_FRONTEND=noninteractive apt-get install -y mesa-va-drivers mesa-vulkan-drivers libgl1-mesa-dri mesa-utils xvfb
+            {mesaInstall}
             """;
 
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: ct);
@@ -99,8 +113,7 @@ public class UbuntuDistroBase : IDistroBase
         Action<string>? onProgress = null,
         CancellationToken ct = default)
     {
-        var packageArgs = string.Join(" ", packages);
-        var script = $"DEBIAN_FRONTEND=noninteractive apt-get install -y {packageArgs}";
+        var script = _cacheHelper.BuildAptInstallScript(Id, packages);
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", onOutputLine: onProgress, cancellationToken: ct);
     }
 }

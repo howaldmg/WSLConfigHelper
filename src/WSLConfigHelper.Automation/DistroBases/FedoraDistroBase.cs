@@ -2,17 +2,28 @@ namespace WSLConfigHelper.Automation.DistroBases;
 
 public class FedoraDistroBase : IDistroBase
 {
+    private readonly PackageCacheHelper _cacheHelper;
+
     public string Id => "fedora";
     public string DisplayName => "Fedora Linux 43";
     public string DefaultWslImage => "FedoraLinux-43";
     public PackageManagerType PackageManager => PackageManagerType.Dnf;
+
+    public FedoraDistroBase(PackageCacheHelper? cacheHelper = null)
+    {
+        _cacheHelper = cacheHelper ?? new PackageCacheHelper();
+    }
 
     public async Task<WslExecutionResult> ConfigureGpuAccelerationAsync(
         string distro,
         IWslProcessRunner runner,
         CancellationToken ct = default)
     {
-        var script = """
+        var dnfConf = PackageCacheHelper.GetDnfConfigScript();
+        var mesaPackages = new[] { "mesa-dri-drivers", "mesa-vulkan-drivers", "glx-utils", "xorg-x11-server-Xvfb" };
+        var mesaInstall = _cacheHelper.BuildDnfInstallScript(Id, mesaPackages);
+
+        var script = $"""
             # 1. Wire WSL dynamic linker paths
             echo "/usr/lib/wsl/lib" > /etc/ld.so.conf.d/ld.wsl.conf
             ldconfig
@@ -25,10 +36,13 @@ public class FedoraDistroBase : IDistroBase
             EOF
             chmod +x /etc/profile.d/wsl-d3d12.sh
 
-            # 3. Install Mesa drivers, OpenGL utilities, and virtual framebuffer for diagnostics
-            dnf install -y mesa-dri-drivers mesa-vulkan-drivers glx-utils xorg-x11-server-Xvfb
+            # 3. Configure DNF cache persistence
+            {dnfConf}
 
-            # 4. Disable NetworkManager (WSL handles mirrored interfaces; NM causes DHCP flapping on virtual loopback devices)
+            # 4. Install Mesa drivers, OpenGL utilities, and virtual framebuffer with package caching
+            {mesaInstall}
+
+            # 5. Disable NetworkManager (WSL handles mirrored interfaces; NM causes DHCP flapping on virtual loopback devices)
             systemctl disable --now NetworkManager 2>/dev/null || true
             """;
 
@@ -106,8 +120,7 @@ public class FedoraDistroBase : IDistroBase
             ? "dnf copr enable -y infinality/pipewire-module-xrdp 2>/dev/null || true\n"
             : "";
 
-        var packageArgs = string.Join(" ", packageList);
-        var script = $"{coprPrefix}dnf install -y {packageArgs}";
+        var script = _cacheHelper.BuildDnfInstallScript(Id, packageList, coprPrefix);
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", onOutputLine: onProgress, cancellationToken: ct);
     }
 }

@@ -8,6 +8,7 @@ public class MockWslProcessRunner : IWslProcessRunner
     public string MockOutput { get; set; } = string.Empty;
     public int MockExitCode { get; set; } = 0;
     public string LastArguments { get; private set; } = string.Empty;
+    public List<string> ExecutedArguments { get; } = new();
 
     public Task<WslExecutionResult> ExecuteAsync(
         string arguments,
@@ -16,6 +17,7 @@ public class MockWslProcessRunner : IWslProcessRunner
         CancellationToken cancellationToken = default)
     {
         LastArguments = arguments;
+        ExecutedArguments.Add(arguments);
         return Task.FromResult(new WslExecutionResult(MockExitCode, MockOutput, string.Empty));
     }
 
@@ -27,6 +29,7 @@ public class MockWslProcessRunner : IWslProcessRunner
         CancellationToken cancellationToken = default)
     {
         LastArguments = $"-d {distro} -u {user}";
+        ExecutedArguments.Add(bashCommand);
         return Task.FromResult(new WslExecutionResult(MockExitCode, MockOutput, string.Empty));
     }
 }

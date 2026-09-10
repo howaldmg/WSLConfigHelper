@@ -7,10 +7,12 @@ public record WslDistroInfo(string Name, string State, int Version, bool IsDefau
 public class DistroManager
 {
     private readonly IWslProcessRunner _runner;
+    private readonly IDistroInstaller _installer;
 
-    public DistroManager(IWslProcessRunner? runner = null)
+    public DistroManager(IWslProcessRunner? runner = null, IDistroInstaller? installer = null)
     {
         _runner = runner ?? new WslProcessRunner();
+        _installer = installer ?? new LocalCachedDistroInstaller(_runner);
     }
 
     public async Task<IReadOnlyList<WslDistroInfo>> ListDistrosAsync(CancellationToken cancellationToken = default)
@@ -69,8 +71,7 @@ public class DistroManager
         Action<string>? onOutputLine = null,
         CancellationToken cancellationToken = default)
     {
-        var args = $"--install {baseDistro} --name {targetName} --no-launch --web-download";
-        return _runner.ExecuteAsync(args, onOutputLine: onOutputLine, cancellationToken: cancellationToken);
+        return _installer.InstallDistroAsync(baseDistro, targetName, onOutputLine, cancellationToken);
     }
 
     public Task<WslExecutionResult> TerminateDistroAsync(string distroName, CancellationToken cancellationToken = default)
