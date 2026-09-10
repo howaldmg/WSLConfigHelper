@@ -173,7 +173,15 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
             rm -f /usr/share/dbus-1/services/org.bluez.obex.service 2>/dev/null || true
             killall -9 obexd 2>/dev/null || true
 
-            # 5. Enable and start xrdp system service
+            # 5. Disable Discover fwupd plugin in WSL2 virtual environments to avoid GDBus errors
+            if [ -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so /usr/lib64/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
+            fi
+            if [ -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
+            fi
+
+            # 6. Enable and start xrdp system service
             systemctl enable xrdp 2>/dev/null || true
             systemctl restart xrdp 2>/dev/null || true
             """;
@@ -195,6 +203,14 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
                 elif command -v apt-get >/dev/null 2>&1; then
                     apt-get update -y 2>/dev/null && apt-get install -y xserver-xephyr 2>/dev/null || true
                 fi
+            fi
+
+            # Disable Discover fwupd plugin in WSL2 virtual environments
+            if [ -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so /usr/lib64/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
+            fi
+            if [ -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
             fi
 
             cat << 'EOF' > {NativeWslgScriptPath}
