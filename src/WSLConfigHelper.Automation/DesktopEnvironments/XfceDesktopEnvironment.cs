@@ -8,6 +8,7 @@ public class XfceDesktopEnvironment : IDesktopEnvironment
     public string DisplayName => "XFCE 4";
     public int DefaultRdpPort => 3391;
     public DesktopProtocol Protocol => DesktopProtocol.Xrdp;
+    public string NativeWslgScriptPath => "/usr/local/bin/start-xfce-wslg";
 
     public IReadOnlyList<DesktopAppShortcut> RecommendedApps => new List<DesktopAppShortcut>
     {
@@ -24,6 +25,7 @@ public class XfceDesktopEnvironment : IDesktopEnvironment
             PackageManagerType.Dnf => new[]
             {
                 "@xfce-desktop-environment",
+                "xorg-x11-server-Xephyr",
                 "xrdp",
                 "xorgxrdp",
                 "pipewire",
@@ -35,6 +37,7 @@ public class XfceDesktopEnvironment : IDesktopEnvironment
             {
                 "xfce4",
                 "xfce4-goodies",
+                "xserver-xephyr",
                 "xrdp",
                 "xorgxrdp",
                 "pipewire",
@@ -159,6 +162,91 @@ public class XfceDesktopEnvironment : IDesktopEnvironment
             # 4. Enable and start xrdp system service
             systemctl enable xrdp 2>/dev/null || true
             systemctl restart xrdp 2>/dev/null || true
+            """;
+
+        return await runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: ct);
+    }
+
+    public async Task<WslExecutionResult> ConfigureNativeWslgViewportAsync(
+        string distro,
+        IWslProcessRunner runner,
+        ViewportOptions options,
+        CancellationToken ct = default)
+    {
+        var script = $"""
+            # Ensure Xephyr is installed
+            if ! command -v Xephyr >/dev/null 2>&1; then
+                if command -v dnf >/dev/null 2>&1; then
+                    dnf install -y xorg-x11-server-Xephyr 2>/dev/null || true
+                elif command -v apt-get >/dev/null 2>&1; then
+                    apt-get update -y 2>/dev/null && apt-get install -y xserver-xephyr 2>/dev/null || true
+                fi
+            fi
+
+            cat << 'EOF' > {NativeWslgScriptPath}
+            #!/bin/bash
+            set -e
+
+            # 1. Ensure user runtime directory exists
+            if [ -z "$XDG_RUNTIME_DIR" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then
+                export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+                if [ ! -d "$XDG_RUNTIME_DIR" ]; then
+                    export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+                    mkdir -p "$XDG_RUNTIME_DIR"
+                    chmod 0700 "$XDG_RUNTIME_DIR"
+                fi
+            fi
+
+            # 2. Check WSLg host display socket availability
+            if [ ! -S /tmp/.X11-unix/X0 ] && [ ! -S /mnt/wslg/runtime-dir/wayland-0 ]; then
+                echo "================================================================"
+                echo " Error: WSLg display socket not detected!"
+                echo " Your .wslconfig may have 'guiApplications=false'."
+                echo " To use WSLg nested window, enable 'guiApplications=true' in"
+                echo " %USERPROFILE%\\.wslconfig and run 'wsl --shutdown'."
+                echo "================================================================"
+                exit 1
+            fi
+
+            # 3. Hardware acceleration & rendering
+            export LIBGL_ALWAYS_SOFTWARE=0
+            export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+            export GALLIUM_DRIVER=d3d12
+
+            # Configure sound server
+            if [ -S /mnt/wslg/PulseServer ]; then
+                export PULSE_SERVER=unix:/mnt/wslg/PulseServer
+            fi
+
+            # Clean up stale locks for display :1
+            rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+
+            echo "Starting nested X server (Xephyr) on WSLg host display :0 ({options.Width}x{options.Height})..."
+            Xephyr :1 -screen {options.Width}x{options.Height} -title "XFCE 4 Desktop (WSLg Native)" -ac -br -reset -terminate &
+            XEPHYR_PID=$!
+
+            sleep 1
+
+            export DISPLAY=:1
+            export GDK_BACKEND=x11
+            export QT_QPA_PLATFORM=xcb
+            export XDG_CURRENT_DESKTOP=XFCE
+            export XDG_SESSION_DESKTOP=xfce
+
+            echo "Starting XFCE session on display :1..."
+            if [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+                export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+                startxfce4 &
+                XFCE_PID=$!
+            else
+                dbus-run-session startxfce4 &
+                XFCE_PID=$!
+            fi
+
+            trap "kill -TERM $XEPHYR_PID $XFCE_PID 2>/dev/null" SIGINT SIGTERM EXIT
+            wait $XEPHYR_PID
+            EOF
+            chmod +x {NativeWslgScriptPath}
             """;
 
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: ct);

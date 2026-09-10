@@ -67,14 +67,14 @@ public class ViewportManager
         return await _runner.ExecuteInDistroAsync(distro, script, cancellationToken: cancellationToken);
     }
 
-    public Process LaunchWslgViewport(string distro, string user = "developer")
+    public Process LaunchWslgViewport(string distro, string user = "developer", string scriptPath = "/usr/local/bin/start-plasma-wslg")
     {
         var psi = new ProcessStartInfo
         {
             FileName = "wsl.exe",
-            Arguments = $"-d {distro} -u {user} -- /usr/local/bin/start-plasma-wslg",
+            Arguments = $"-d {distro} -u {user} -- {scriptPath}",
             UseShellExecute = false,
-            CreateNoWindow = false
+            CreateNoWindow = true
         };
 
         return Process.Start(psi)!;

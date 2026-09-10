@@ -1,0 +1,3 @@
+@echo off
+echo Starting KDE Plasma in native WSLg nested viewport (Ubuntu-KDE)...
+wsl -d Ubuntu-KDE -u developer -- /usr/local/bin/start-plasma-wslg

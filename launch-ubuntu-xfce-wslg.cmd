@@ -1,0 +1,3 @@
+@echo off
+echo Starting XFCE 4 in native WSLg nested viewport (Ubuntu-XFCE)...
+wsl -d Ubuntu-XFCE -u developer -- /usr/local/bin/start-xfce-wslg

@@ -9,5 +9,6 @@ public record WorkstationProfile(
     string DistroName,
     IDistroBase DistroBase,
     IDesktopEnvironment DesktopEnvironment,
+    int RdpPort,
     bool IsCuratedDefault = true
 );

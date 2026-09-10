@@ -4,7 +4,8 @@ public enum DesktopProtocol
 {
     NativeRdp,
     Xrdp,
-    Wayvnc
+    Wayvnc,
+    WslgNested
 }
 
 public record DesktopAppShortcut(string Name, string Command, string Category);

@@ -47,7 +47,7 @@ public class DesktopAutomationView
             grid.AddColumn(new GridColumn().PadRight(2));
             grid.AddColumn(new GridColumn());
             grid.AddRow("[grey]Workstation Profile:[/] [bold white]" + _activeProfile.DisplayName + "[/]", $"[grey]Distro Status:[/] {statusBadge}");
-            grid.AddRow("[grey]WSL Instance Name:[/] [white]" + _activeProfile.DistroName + "[/]", $"[grey]RDP Port:[/] [bold cyan]{_activeProfile.DesktopEnvironment.DefaultRdpPort}[/]");
+            grid.AddRow("[grey]WSL Instance Name:[/] [white]" + _activeProfile.DistroName + "[/]", $"[grey]RDP Port:[/] [bold cyan]{_activeProfile.RdpPort}[/]");
             grid.AddRow("[grey]Base Distribution:[/] [white]" + _activeProfile.DistroBase.DisplayName + $" ({_activeProfile.DistroBase.PackageManager})[/]", "[grey]GPU Backend:[/] [white]Mesa D3D12 (/dev/dxg)[/]");
             grid.AddRow("[grey]Desktop Shell:[/] [white]" + _activeProfile.DesktopEnvironment.DisplayName + $" ({_activeProfile.DesktopEnvironment.Protocol})[/]", "[grey]Default User:[/] [white]developer[/]");
 
@@ -60,17 +60,18 @@ public class DesktopAutomationView
 
             var menu = new SelectionPrompt<string>()
                 .Title("[bold]Automation Operations & Phased Checkpoints:[/]")
-                .PageSize(10)
+                .PageSize(12)
                 .AddChoices(
                     "1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
                     $"2. 📦 Phase 1: Provision {_activeProfile.DistroName} & GPU-PV (Mesa D3D12)",
                     $"3. 🎨 Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio",
-                    $"4. 🖥️ Phase 3: Launch Full Desktop (RDP Viewport : {_activeProfile.DesktopEnvironment.DefaultRdpPort})",
-                    $"5. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
-                    "6. 🔄 Switch / Create Workstation Profile",
-                    $"7. 🛑 Stop / Shutdown {_activeProfile.DistroName} (wsl --terminate)",
-                    "8. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
-                    "9. 🚪 ← Back to Main Menu"
+                    $"4. 🚀 Phase 3: Launch Native Framerate Desktop (WSLg Nested Viewport - Monitor Hz)",
+                    $"5. 🖥️ Phase 3 (Alt): Launch Desktop via RDP (mstsc.exe : {_activeProfile.RdpPort})",
+                    $"6. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
+                    "7. 🔄 Switch / Create Workstation Profile",
+                    $"8. 🛑 Stop / Shutdown {_activeProfile.DistroName} (wsl --terminate)",
+                    "9. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
+                    "10. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
@@ -89,21 +90,25 @@ public class DesktopAutomationView
             }
             else if (choice.StartsWith("4."))
             {
-                await RunPhase3RdpAsync(distroExists);
+                await RunPhase3WslgNativeAsync(distroExists);
             }
             else if (choice.StartsWith("5."))
             {
-                await RunPhase4WslgAppsAsync(distroExists);
+                await RunPhase3RdpAsync(distroExists);
             }
             else if (choice.StartsWith("6."))
             {
-                await SwitchOrCreateProfileAsync();
+                await RunPhase4WslgAppsAsync(distroExists);
             }
             else if (choice.StartsWith("7."))
             {
-                await StopWorkstationAsync();
+                await SwitchOrCreateProfileAsync();
             }
             else if (choice.StartsWith("8."))
+            {
+                await StopWorkstationAsync();
+            }
+            else if (choice.StartsWith("9."))
             {
                 await RunPhase5SunshineAsync(distroExists);
             }
@@ -308,6 +313,88 @@ public class DesktopAutomationView
         ConsoleRenderer.PressEnterToContinue();
     }
 
+    private async Task RunPhase3WslgNativeAsync(bool distroExists)
+    {
+        AnsiConsole.Clear();
+        AnsiConsole.Write(new Rule($"[bold cyan]Phase 3: Launch Native Framerate Desktop ({_activeProfile.DesktopEnvironment.DisplayName} WSLg Viewport)[/]") { Justification = Justify.Left });
+
+        if (!distroExists)
+        {
+            AnsiConsole.MarkupLine($"[yellow]'{_activeProfile.DistroName}' is not yet provisioned.[/] Complete Phase 1 and Phase 2 first.");
+            ConsoleRenderer.PressEnterToContinue();
+            return;
+        }
+
+        AnsiConsole.MarkupLine("[grey]Deploys a native-framerate, direct GPU-PV nested desktop window running at your host monitor's refresh rate (144Hz/240Hz+).[/]");
+        AnsiConsole.MarkupLine("[grey]Bypasses RDP network streaming and Sunshine encoding with zero compression artifacts.[/]\n");
+
+        int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
+        int height = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Height (pixels):").DefaultValue(1080));
+
+        AnsiConsole.MarkupLine("[cyan]Configuring native WSLg viewport script...[/]");
+        var options = new ViewportOptions(Width: width, Height: height, User: "developer");
+        var result = await _activeProfile.DesktopEnvironment.ConfigureNativeWslgViewportAsync(_activeProfile.DistroName, _runner, options);
+
+        if (!result.Success)
+        {
+            AnsiConsole.MarkupLine($"[red bold]Failed to configure script:[/] {Markup.Escape(result.StandardError)}");
+            ConsoleRenderer.PressEnterToContinue();
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"[green]✓ Native viewport configured at {_activeProfile.DesktopEnvironment.NativeWslgScriptPath}![/]");
+
+        // Generate Windows .cmd launcher
+        await GenerateWindowsWslgLauncherAsync(_activeProfile.DistroName, _activeProfile.DesktopEnvironment.NativeWslgScriptPath);
+
+        string backendDesc = _activeProfile.DesktopEnvironment.Id == "kde-plasma"
+            ? "Nested KWin Wayland (wayland-0)"
+            : "Nested Xephyr (X11 / D3D12)";
+
+        var infoPanel = new Panel(new Markup(
+            "[bold white]Native Framerate WSLg Viewport Details:[/]\n\n" +
+            $"• Compositor / Backend: [bold green]{backendDesc}[/]\n" +
+            $"• Resolution:           [bold cyan]{width}x{height}[/]\n" +
+            "• Refresh Rate:         [bold green]Native Host Monitor (Uncapped / VSync)[/]\n" +
+            "• Rendering:            [bold cyan]Mesa D3D12 via /dev/dxg (DirectX 12 GPU-PV)[/]\n" +
+            "• Latency:              [bold green]Zero-Network Direct IPC (Shared Surfaces)[/]\n\n" +
+            $"[grey]Generated launcher in current directory:[/] [cyan]launch-{_activeProfile.DistroName.ToLowerInvariant()}-wslg.cmd[/]"
+        ))
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader($" {_activeProfile.DesktopEnvironment.DisplayName} Native Viewport ")
+        };
+        AnsiConsole.Write(infoPanel);
+        AnsiConsole.WriteLine();
+
+        if (AnsiConsole.Confirm($"Launch {_activeProfile.DesktopEnvironment.DisplayName} native desktop window now?", defaultValue: true))
+        {
+            AnsiConsole.MarkupLine("[cyan]Launching native desktop window via WSLg...[/]");
+            _viewportManager.LaunchWslgViewport(_activeProfile.DistroName, "developer", _activeProfile.DesktopEnvironment.NativeWslgScriptPath);
+            AnsiConsole.MarkupLine("[green]✓ Window launched! Look for the desktop window on your Windows desktop.[/]");
+        }
+
+        ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private async Task GenerateWindowsWslgLauncherAsync(string distroName, string scriptPath)
+    {
+        try
+        {
+            var cmdContent = $"""
+                @echo off
+                echo Launching {distroName} desktop at native monitor refresh rate via WSLg...
+                wsl -d {distroName} -u developer -- {scriptPath}
+                """;
+
+            await File.WriteAllTextAsync($"launch-{distroName.ToLowerInvariant()}-wslg.cmd", cmdContent);
+        }
+        catch
+        {
+            // Best effort convenience generation
+        }
+    }
+
     private async Task RunPhase3RdpAsync(bool distroExists)
     {
         AnsiConsole.Clear();
@@ -320,7 +407,7 @@ public class DesktopAutomationView
             return;
         }
 
-        int defaultPort = _activeProfile.DesktopEnvironment.DefaultRdpPort;
+        int defaultPort = _activeProfile.RdpPort;
         AnsiConsole.MarkupLine($"[grey]Deploys a virtual 60fps {_activeProfile.DesktopEnvironment.DisplayName} desktop exposed via {_activeProfile.DesktopEnvironment.Protocol} on port {defaultPort}.[/]\n");
 
         int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
@@ -469,7 +556,7 @@ public class DesktopAutomationView
         foreach (var p in profiles)
         {
             var activeMarker = p.Id == _activeProfile.Id ? " (Active)" : "";
-            menuChoices.Add($"{p.DisplayName} ({p.DistroName} : {p.DesktopEnvironment.DefaultRdpPort}){activeMarker}");
+            menuChoices.Add($"{p.DisplayName} ({p.DistroName} : Port {p.RdpPort}){activeMarker}");
         }
         menuChoices.Add("🛠️ Create Custom Profile (Mix & Match Distro Base + Desktop)");
         menuChoices.Add("← Cancel");
@@ -502,7 +589,7 @@ public class DesktopAutomationView
             var deChoice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
                     .Title("Choose Desktop Environment:")
-                    .AddChoices(des.Select(d => $"{d.DisplayName} (Port {d.DefaultRdpPort})"))
+                    .AddChoices(des.Select(d => d.DisplayName))
             );
             var selectedDe = des.First(d => deChoice.StartsWith(d.DisplayName));
 
@@ -513,9 +600,16 @@ public class DesktopAutomationView
                     .DefaultValue(defaultName)
             );
 
-            var newProfile = _registry.CreateCustomProfile(selectedBase, selectedDe, customName);
+            int nextPort = _registry.GetNextAvailablePort();
+            AnsiConsole.MarkupLine("\n[bold cyan]4. Enter RDP Viewport Port:[/]");
+            int customPort = AnsiConsole.Prompt(
+                new TextPrompt<int>("RDP Port:")
+                    .DefaultValue(nextPort)
+            );
+
+            var newProfile = _registry.CreateCustomProfile(selectedBase, selectedDe, customName, customPort);
             _activeProfile = newProfile;
-            AnsiConsole.MarkupLine($"\n[green bold]✓ Custom profile created and activated: {newProfile.DisplayName}![/]");
+            AnsiConsole.MarkupLine($"\n[green bold]✓ Custom profile created and activated: {newProfile.DisplayName} (Port {newProfile.RdpPort})![/]");
             ConsoleRenderer.PressEnterToContinue();
             return;
         }
