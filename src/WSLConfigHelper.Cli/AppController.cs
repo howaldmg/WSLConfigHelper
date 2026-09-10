@@ -43,66 +43,66 @@ public class AppController
                 .Title("[bold]Main Menu:[/] Choose an operation")
                 .PageSize(12)
                 .AddChoices(
-                    "1. 📊 View Current Configuration & Hardware Alignment",
-                    "2. 🩺 Run Guardrail Doctor (Diagnostics Audit)",
-                    "3. ⚡ Apply Hardware-Tuned Preset",
-                    "4. ⚙️  Edit [[wsl2]] Core Settings (Memory, vCPUs, Swap...)",
-                    "5. 🧪 Edit [[experimental]] Settings (Mirrored Net, AutoReclaim...)",
-                    "6. 🖥️  Desktop Experience & Viewport (Fedora KDE + GPU-PV)",
-                    "7. 💾 Save Changes to .wslconfig (Creates single .bak)",
-                    "8. 🔄 Restore from .wslconfig.bak",
-                    "9. 📄 View Raw INI Document",
+                    " 1. 📊 View Current Configuration & Hardware Alignment",
+                    " 2. 🩺 Run Guardrail Doctor (Diagnostics Audit)",
+                    " 3. ⚡ Apply Hardware-Tuned Preset",
+                    " 4. ⚙️  Edit [[wsl2]] Core Settings (Memory, vCPUs, Swap...)",
+                    " 5. 🧪 Edit [[experimental]] Settings (Mirrored Net, AutoReclaim...)",
+                    " 6. 🖥️  Desktop Experience (WSLg Native / RDP Viewports)",
+                    " 7. 💾 Save Changes to .wslconfig (Creates single .bak)",
+                    " 8. 🔄 Restore from .wslconfig.bak",
+                    " 9. 📄 View Raw INI Document",
                     "10. 🚪 Exit"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
 
-            if (choice.StartsWith("1."))
+            if (choice.Contains("1."))
             {
                 DashboardView.Show(_currentDoc, _hostMetrics, _guardrails);
             }
-            else if (choice.StartsWith("2."))
+            else if (choice.Contains("2."))
             {
                 DoctorView.Show(_currentDoc, _hostMetrics, _guardrails);
             }
-            else if (choice.StartsWith("3."))
+            else if (choice.Contains("3."))
             {
                 if (PresetView.Show(_currentDoc, _hostMetrics, _presets))
                 {
                     _hasUnsavedChanges = true;
                 }
             }
-            else if (choice.StartsWith("4."))
+            else if (choice.Contains("4."))
             {
                 if (SectionEditorView.Show(WslKnownSettings.SectionWsl2, _currentDoc, _hostMetrics, _guardrails))
                 {
                     _hasUnsavedChanges = true;
                 }
             }
-            else if (choice.StartsWith("5."))
+            else if (choice.Contains("5."))
             {
                 if (SectionEditorView.Show(WslKnownSettings.SectionExperimental, _currentDoc, _hostMetrics, _guardrails))
                 {
                     _hasUnsavedChanges = true;
                 }
             }
-            else if (choice.StartsWith("6."))
+            else if (choice.Contains("6."))
             {
                 await _desktopAutomationView.ShowAsync();
             }
-            else if (choice.StartsWith("7."))
+            else if (choice.Contains("7."))
             {
                 SaveChanges();
             }
-            else if (choice.StartsWith("8."))
+            else if (choice.Contains("8."))
             {
                 RestoreBackup();
             }
-            else if (choice.StartsWith("9."))
+            else if (choice.Contains("9."))
             {
                 ShowRawIni();
             }
-            else if (choice.StartsWith("10."))
+            else if (choice.Contains("10."))
             {
                 if (ConfirmExit())
                 {

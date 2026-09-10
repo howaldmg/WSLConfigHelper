@@ -44,12 +44,12 @@ public class DesktopAutomationView
             var statusBadge = distroExists ? "[green bold]Installed / Available[/]" : "[yellow]Not Yet Provisioned[/]";
 
             var grid = new Grid();
-            grid.AddColumn(new GridColumn().PadRight(2));
+            grid.AddColumn(new GridColumn().PadRight(4));
             grid.AddColumn(new GridColumn());
             grid.AddRow("[grey]Workstation Profile:[/] [bold white]" + _activeProfile.DisplayName + "[/]", $"[grey]Distro Status:[/] {statusBadge}");
-            grid.AddRow("[grey]WSL Instance Name:[/] [white]" + _activeProfile.DistroName + "[/]", $"[grey]RDP Port:[/] [bold cyan]{_activeProfile.RdpPort}[/]");
-            grid.AddRow("[grey]Base Distribution:[/] [white]" + _activeProfile.DistroBase.DisplayName + $" ({_activeProfile.DistroBase.PackageManager})[/]", "[grey]GPU Backend:[/] [white]Mesa D3D12 (/dev/dxg)[/]");
-            grid.AddRow("[grey]Desktop Shell:[/] [white]" + _activeProfile.DesktopEnvironment.DisplayName + $" ({_activeProfile.DesktopEnvironment.Protocol})[/]", "[grey]Default User:[/] [white]developer[/]");
+            grid.AddRow("[grey]WSL Instance Name:[/]   [white]" + _activeProfile.DistroName + "[/]", $"[grey]WSLg Viewport:[/] [bold green]Active (Monitor Native Hz)[/]");
+            grid.AddRow("[grey]Base Distribution:[/]   [white]" + _activeProfile.DistroBase.DisplayName + $" ({_activeProfile.DistroBase.PackageManager})[/]", $"[grey]RDP Viewport:[/]  [dim]localhost:{_activeProfile.RdpPort} (Optional Fallback)[/]");
+            grid.AddRow("[grey]Desktop Shell:[/]       [white]" + _activeProfile.DesktopEnvironment.DisplayName + "[/]", "[grey]GPU Backend:[/]   [white]Mesa D3D12 (/dev/dxg GPU-PV)[/]");
 
             AnsiConsole.Write(new Panel(grid)
             {
@@ -62,53 +62,53 @@ public class DesktopAutomationView
                 .Title("[bold]Automation Operations & Phased Checkpoints:[/]")
                 .PageSize(12)
                 .AddChoices(
-                    "1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
-                    $"2. 📦 Phase 1: Provision {_activeProfile.DistroName} & GPU-PV (Mesa D3D12)",
-                    $"3. 🎨 Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio",
-                    $"4. 🚀 Phase 3: Launch Native Framerate Desktop (WSLg Nested Viewport - Monitor Hz)",
-                    $"5. 🖥️ Phase 3 (Alt): Launch Desktop via RDP (mstsc.exe : {_activeProfile.RdpPort})",
-                    $"6. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
-                    "7. 🔄 Switch / Create Workstation Profile",
-                    $"8. 🛑 Stop / Shutdown {_activeProfile.DistroName} (wsl --terminate)",
-                    "9. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
+                    " 1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
+                    $" 2. 📦 Phase 1: Provision {_activeProfile.DistroName} & GPU-PV (Mesa D3D12)",
+                    $" 3. 🎨 Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio",
+                    $" 4. 🚀 Phase 3: Launch Native Framerate Desktop (WSLg Viewport - Monitor Hz)",
+                    $" 5. 🖥️  Phase 3 (Fallback): Launch Desktop via RDP (Port {_activeProfile.RdpPort})",
+                    $" 6. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
+                    " 7. 🔄 Switch / Create Workstation Profile",
+                    $" 8. 🛑 Stop / Terminate {_activeProfile.DistroName}",
+                    " 9. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
                     "10. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
 
-            if (choice.StartsWith("1."))
+            if (choice.Contains("1."))
             {
                 await RunDiagnosticsAsync(distroExists);
             }
-            else if (choice.StartsWith("2."))
+            else if (choice.Contains("2."))
             {
                 await RunPhase1Async(distroExists);
             }
-            else if (choice.StartsWith("3."))
+            else if (choice.Contains("3."))
             {
                 await RunPhase2Async(distroExists);
             }
-            else if (choice.StartsWith("4."))
+            else if (choice.Contains("4."))
             {
                 await RunPhase3WslgNativeAsync(distroExists);
             }
-            else if (choice.StartsWith("5."))
+            else if (choice.Contains("5."))
             {
                 await RunPhase3RdpAsync(distroExists);
             }
-            else if (choice.StartsWith("6."))
+            else if (choice.Contains("6."))
             {
                 await RunPhase4WslgAppsAsync(distroExists);
             }
-            else if (choice.StartsWith("7."))
+            else if (choice.Contains("7."))
             {
                 await SwitchOrCreateProfileAsync();
             }
-            else if (choice.StartsWith("8."))
+            else if (choice.Contains("8."))
             {
                 await StopWorkstationAsync();
             }
-            else if (choice.StartsWith("9."))
+            else if (choice.Contains("9."))
             {
                 await RunPhase5SunshineAsync(distroExists);
             }
@@ -555,11 +555,11 @@ public class DesktopAutomationView
 
         foreach (var p in profiles)
         {
-            var activeMarker = p.Id == _activeProfile.Id ? " (Active)" : "";
-            menuChoices.Add($"{p.DisplayName} ({p.DistroName} : Port {p.RdpPort}){activeMarker}");
+            var activeMarker = p.Id == _activeProfile.Id ? " [bold green](Active)[/]" : "";
+            menuChoices.Add($"{p.DisplayName} [{p.DistroName}]{activeMarker}");
         }
-        menuChoices.Add("🛠️ Create Custom Profile (Mix & Match Distro Base + Desktop)");
-        menuChoices.Add("← Cancel");
+        menuChoices.Add("🛠️  Create Custom Profile (Mix & Match Distro Base + Desktop)");
+        menuChoices.Add("🚪 ← Cancel");
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
