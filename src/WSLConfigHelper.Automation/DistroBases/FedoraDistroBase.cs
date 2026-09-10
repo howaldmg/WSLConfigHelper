@@ -103,6 +103,11 @@ public class FedoraDistroBase : IDistroBase
             # Ensure user ~/.config is pre-created with user ownership
             mkdir -p "/home/{{username}}/.config"
             chown -R "{{username}}:{{username}}" "/home/{{username}}/.config"
+
+            # Configure Google Chrome / Chromium hardware acceleration flags for WSL2 D3D12/WebGL
+            if [ -f /usr/share/applications/google-chrome.desktop ]; then
+                sed -i 's|^Exec=/usr/bin/google-chrome-stable .*|Exec=/usr/bin/google-chrome-stable --use-gl=angle --use-angle=gl --enable-gpu-rasterization --ignore-gpu-blocklist %U|' /usr/share/applications/google-chrome.desktop 2>/dev/null || true
+            fi
             """;
 
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: ct);
