@@ -79,6 +79,34 @@ public class DistroManager
         return _runner.ExecuteAsync($"-t {distroName}", cancellationToken: cancellationToken);
     }
 
+    public async Task<WslExecutionResult> UnregisterDistroAsync(string distroName, CancellationToken cancellationToken = default)
+    {
+        // 1. Terminate running processes first
+        await TerminateDistroAsync(distroName, cancellationToken);
+
+        // 2. Unregister from WSL
+        var result = await _runner.ExecuteAsync($"--unregister {distroName}", cancellationToken: cancellationToken);
+
+        // 3. Clean up directory if created by LocalCachedDistroInstaller
+        if (_installer is LocalCachedDistroInstaller cachedInstaller)
+        {
+            var targetDir = Path.Combine(cachedInstaller.DistroInstallRoot, distroName);
+            try
+            {
+                if (Directory.Exists(targetDir))
+                {
+                    Directory.Delete(targetDir, recursive: true);
+                }
+            }
+            catch
+            {
+                // Best effort directory cleanup
+            }
+        }
+
+        return result;
+    }
+
     public Task<WslExecutionResult> ShutdownAsync(CancellationToken cancellationToken = default)
     {
         return _runner.ExecuteAsync("--shutdown", cancellationToken: cancellationToken);

@@ -30,3 +30,8 @@ bld/
 *.local
 .wslconfig.bak
 .wslconfig.tmp.*
+
+## Generated Launchers and Viewport Artifacts
+*.cmd
+*.rdp
+launchers/

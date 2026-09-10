@@ -1,3 +1,0 @@
-@echo off
-echo Launching Fedora-KDE desktop at native monitor refresh rate via WSLg...
-wsl -d Fedora-KDE -u developer -- /usr/local/bin/start-plasma-wslg

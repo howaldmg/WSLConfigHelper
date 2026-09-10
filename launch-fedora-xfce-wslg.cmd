@@ -1,3 +1,0 @@
-@echo off
-echo Starting XFCE 4 in native WSLg nested viewport (Fedora-XFCE)...
-wsl -d Fedora-XFCE -u developer -- /usr/local/bin/start-xfce-wslg

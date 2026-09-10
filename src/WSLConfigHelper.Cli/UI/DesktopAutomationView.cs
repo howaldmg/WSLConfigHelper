@@ -70,45 +70,50 @@ public class DesktopAutomationView
                     $" 6. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
                     " 7. 🔄 Switch / Create Workstation Profile",
                     $" 8. 🛑 Stop / Terminate {_activeProfile.DistroName}",
-                    " 9. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
-                    "10. 🚪 ← Back to Main Menu"
+                    $" 9. 🗑️  Tear Down / Unregister {_activeProfile.DistroName} (Reset)",
+                    "10. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
+                    "11. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
 
-            if (choice.Contains("1."))
+            if (choice.Contains(" 1."))
             {
                 await RunDiagnosticsAsync(distroExists);
             }
-            else if (choice.Contains("2."))
+            else if (choice.Contains(" 2."))
             {
                 await RunPhase1Async(distroExists);
             }
-            else if (choice.Contains("3."))
+            else if (choice.Contains(" 3."))
             {
                 await RunPhase2Async(distroExists);
             }
-            else if (choice.Contains("4."))
+            else if (choice.Contains(" 4."))
             {
                 await RunPhase3WslgNativeAsync(distroExists);
             }
-            else if (choice.Contains("5."))
+            else if (choice.Contains(" 5."))
             {
                 await RunPhase3RdpAsync(distroExists);
             }
-            else if (choice.Contains("6."))
+            else if (choice.Contains(" 6."))
             {
                 await RunPhase4WslgAppsAsync(distroExists);
             }
-            else if (choice.Contains("7."))
+            else if (choice.Contains(" 7."))
             {
                 await SwitchOrCreateProfileAsync();
             }
-            else if (choice.Contains("8."))
+            else if (choice.Contains(" 8."))
             {
                 await StopWorkstationAsync();
             }
-            else if (choice.Contains("9."))
+            else if (choice.Contains(" 9."))
+            {
+                await TeardownWorkstationAsync();
+            }
+            else if (choice.Contains("10."))
             {
                 await RunPhase5SunshineAsync(distroExists);
             }
@@ -630,6 +635,78 @@ public class DesktopAutomationView
         await _distroManager.TerminateDistroAsync(_activeProfile.DistroName);
         AnsiConsole.MarkupLine($"[green bold]✓ {_activeProfile.DistroName} successfully stopped.[/]");
         ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private async Task TeardownWorkstationAsync()
+    {
+        AnsiConsole.Clear();
+        var distroName = _activeProfile.DistroName;
+
+        var dangerPanel = new Panel(new Markup(
+            "[bold red]⚠️  DANGER ZONE: Permanent Workstation Deletion[/]\n\n" +
+            $"You are about to permanently unregister and delete: [bold white]{distroName}[/]\n\n" +
+            "This action [bold red]CANNOT[/] be undone:\n" +
+            "  • Destroys the virtual disk ([cyan]ext4.vhdx[/]) and all data inside the instance\n" +
+            "  • Removes WSL registration for this distro\n" +
+            "  • Deletes local launcher shortcuts and RDP profiles\n\n" +
+            "[grey]Note: Base cached images (.tar) are preserved for instant rebuilds.[/]"
+        ))
+        {
+            Border = BoxBorder.Heavy,
+            BorderStyle = Style.Parse("red")
+        };
+        AnsiConsole.Write(dangerPanel);
+        AnsiConsole.WriteLine();
+
+        var confirmation = AnsiConsole.Prompt(
+            new TextPrompt<string>($"To confirm deletion, please type [bold red]{distroName}[/] or press Enter to abort:")
+                .AllowEmpty()
+        );
+
+        if (!string.Equals(confirmation?.Trim(), distroName, StringComparison.OrdinalIgnoreCase))
+        {
+            AnsiConsole.MarkupLine("\n[grey]Teardown aborted. No changes were made.[/]");
+            ConsoleRenderer.PressEnterToContinue();
+            return;
+        }
+
+        AnsiConsole.WriteLine();
+        await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync($"Terminating and unregistering {distroName}...", async _ =>
+            {
+                await _distroManager.UnregisterDistroAsync(distroName);
+                CleanupDistroLaunchers(distroName);
+            });
+
+        AnsiConsole.MarkupLine($"[green bold]✓ {distroName} has been completely uninstalled and cleaned up.[/]");
+        ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private static void CleanupDistroLaunchers(string distroName)
+    {
+        var filesToDelete = new[]
+        {
+            $"launch-{distroName.ToLowerInvariant()}-wslg.cmd",
+            $"connect-{distroName.ToLowerInvariant()}.cmd",
+            $"{distroName}.rdp",
+            $"{distroName.ToUpperInvariant()}.rdp"
+        };
+
+        foreach (var file in filesToDelete)
+        {
+            try
+            {
+                if (File.Exists(file))
+                {
+                    File.Delete(file);
+                }
+            }
+            catch
+            {
+                // Best effort cleanup
+            }
+        }
     }
 
     private async Task RunPhase5SunshineAsync(bool distroExists)
