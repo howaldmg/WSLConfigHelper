@@ -561,7 +561,7 @@ public class DesktopAutomationView
         foreach (var p in profiles)
         {
             var activeMarker = p.Id == _activeProfile.Id ? " [bold green](Active)[/]" : "";
-            menuChoices.Add($"{p.DisplayName} [{p.DistroName}]{activeMarker}");
+            menuChoices.Add($"{p.DisplayName} ({p.DistroName}){activeMarker}");
         }
         menuChoices.Add("🛠️  Create Custom Profile (Mix & Match Distro Base + Desktop)");
         menuChoices.Add("🚪 ← Cancel");
@@ -573,7 +573,7 @@ public class DesktopAutomationView
                 .AddChoices(menuChoices)
         );
 
-        if (choice == "← Cancel")
+        if (choice.Contains("Cancel"))
         {
             return;
         }
