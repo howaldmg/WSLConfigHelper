@@ -101,8 +101,13 @@ public class FedoraDistroBase : IDistroBase
         Action<string>? onProgress = null,
         CancellationToken ct = default)
     {
-        var packageArgs = string.Join(" ", packages);
-        var script = $"dnf install -y {packageArgs}";
+        var packageList = packages.ToList();
+        var coprPrefix = packageList.Any(p => p.Contains("pipewire-module-xrdp"))
+            ? "dnf copr enable -y infinality/pipewire-module-xrdp 2>/dev/null || true\n"
+            : "";
+
+        var packageArgs = string.Join(" ", packageList);
+        var script = $"{coprPrefix}dnf install -y {packageArgs}";
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", onOutputLine: onProgress, cancellationToken: ct);
     }
 }

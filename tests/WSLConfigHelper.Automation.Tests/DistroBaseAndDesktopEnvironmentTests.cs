@@ -53,6 +53,8 @@ public class DistroBaseAndDesktopEnvironmentTests
         Assert.Contains("@kde-desktop-environment", dnfPackages);
         Assert.Contains("plasma-workspace-x11", dnfPackages);
         Assert.Contains("xrdp", dnfPackages);
+        Assert.Contains("pipewire-module-xrdp", dnfPackages);
+        Assert.Contains("pulseaudio-utils", dnfPackages);
         Assert.Contains("kde-standard", aptPackages);
         Assert.Contains("xrdp", aptPackages);
 
@@ -62,7 +64,20 @@ public class DistroBaseAndDesktopEnvironmentTests
 
         Assert.Contains("@xfce-desktop-environment", xfceDnf);
         Assert.Contains("xrdp", xfceDnf);
+        Assert.Contains("pipewire-module-xrdp", xfceDnf);
+        Assert.Contains("pulseaudio-utils", xfceDnf);
         Assert.Contains("xfce4", xfceApt);
+    }
+
+    [Fact]
+    public async Task FedoraDistroBaseEnablesCoprWhenInstallingAudioRedirectionPackage()
+    {
+        var recorder = new ViewportRunnerRecorder();
+        var fedora = new FedoraDistroBase();
+
+        await fedora.InstallPackagesAsync("Fedora-Desktop", new[] { "xrdp", "pipewire-module-xrdp" }, recorder);
+        Assert.Contains("dnf copr enable -y infinality/pipewire-module-xrdp", recorder.LastBashCommand);
+        Assert.Contains("dnf install -y xrdp pipewire-module-xrdp", recorder.LastBashCommand);
     }
 
     [Fact]
@@ -76,6 +91,7 @@ public class DistroBaseAndDesktopEnvironmentTests
 
         Assert.Equal("Fedora-Desktop", recorder.LastDistro);
         Assert.Contains("port=3390", recorder.LastBashCommand);
+        Assert.Contains("pipewire-module-xrdp", recorder.LastBashCommand);
         Assert.Contains("startplasma-x11", recorder.LastBashCommand);
         Assert.Contains("systemctl restart xrdp", recorder.LastBashCommand);
     }
@@ -91,7 +107,8 @@ public class DistroBaseAndDesktopEnvironmentTests
 
         Assert.Equal("Fedora-XFCE", recorder.LastDistro);
         Assert.Contains("port=3391", recorder.LastBashCommand);
-        Assert.Contains("exec startxfce4", recorder.LastBashCommand);
+        Assert.Contains("pipewire-module-xrdp", recorder.LastBashCommand);
+        Assert.Contains("exec dbus-run-session startxfce4", recorder.LastBashCommand);
         Assert.Contains("systemctl restart xrdp", recorder.LastBashCommand);
     }
 }

@@ -29,6 +29,8 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
                 "xorgxrdp",
                 "pipewire",
                 "wireplumber",
+                "pipewire-module-xrdp",
+                "pulseaudio-utils",
                 "google-noto-sans-fonts",
                 "jetbrains-mono-fonts"
             },
@@ -99,11 +101,59 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
             export LIBGL_ALWAYS_SOFTWARE=0
             export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
             export GALLIUM_DRIVER=d3d12
+            # Force X11 backend for XRDP session (prevents WSLg wayland-0 socket conflict)
+            unset WAYLAND_DISPLAY
+            export GDK_BACKEND=x11
+            export QT_QPA_PLATFORM=xcb
             export XDG_CURRENT_DESKTOP=KDE
             export XDG_SESSION_DESKTOP=KDE
             export KDE_SESSION_VERSION=6
-            export PULSE_SERVER=unix:/mnt/wslg/PulseServer
-            exec dbus-run-session startplasma-x11
+
+            # Ensure runtime directory exists
+            export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+
+            # If runtime pulse dir is symlinked to WSLg, break symlink for dedicated PipeWire socket
+            if [ -L "$XDG_RUNTIME_DIR/pulse" ]; then
+                rm -f "$XDG_RUNTIME_DIR/pulse"
+            fi
+            mkdir -p "$XDG_RUNTIME_DIR/pulse"
+
+            # If pipewire-module-xrdp is installed, initialize PipeWire stack with XRDP audio
+            if [ -x /usr/libexec/pipewire-module-xrdp/load_pw_modules.sh ]; then
+                if [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+                    eval $(dbus-launch --sh-syntax --exit-with-session)
+                fi
+
+                # Sync activation environment for D-Bus services
+                if command -v dbus-update-activation-environment >/dev/null 2>&1; then
+                    dbus-update-activation-environment --systemd GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb DISPLAY XAUTHORITY XDG_CURRENT_DESKTOP 2>/dev/null || true
+                    dbus-update-activation-environment --systemd -u WAYLAND_DISPLAY 2>/dev/null || true
+                fi
+                if command -v systemctl >/dev/null 2>&1; then
+                    systemctl --user unset-environment WAYLAND_DISPLAY 2>/dev/null || true
+                    systemctl --user set-environment GDK_BACKEND=x11 QT_QPA_PLATFORM=xcb DISPLAY="$DISPLAY" XDG_CURRENT_DESKTOP=KDE 2>/dev/null || true
+                fi
+
+                if ! pgrep -u "$USER" -x pipewire >/dev/null; then
+                    pipewire &
+                    sleep 0.5
+                    wireplumber &
+                    sleep 0.5
+                    pipewire-pulse &
+                    sleep 0.5
+                fi
+
+                export PULSE_SERVER="unix:$XDG_RUNTIME_DIR/pulse/native"
+                /usr/libexec/pipewire-module-xrdp/load_pw_modules.sh &
+            elif [ -S /mnt/wslg/PulseServer ]; then
+                export PULSE_SERVER=unix:/mnt/wslg/PulseServer
+            fi
+
+            if [ -n "$DBUS_SESSION_BUS_ADDRESS" ]; then
+                exec startplasma-x11
+            else
+                exec dbus-run-session startplasma-x11
+            fi
             EOF
             chown {options.User}:{options.User} "/home/{options.User}/.xsession"
             chmod +x "/home/{options.User}/.xsession"

@@ -4,7 +4,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3" /></a>
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet" alt=".NET 10" />
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20WSL2-0078D6?logo=windows" alt="Platform" />
-  <img src="https://img.shields.io/badge/Tests-28%20Passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-41%20Passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/Console-Spectre.Console-green" alt="Spectre.Console" />
 </p>
 
