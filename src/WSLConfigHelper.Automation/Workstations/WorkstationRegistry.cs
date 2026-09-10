@@ -23,7 +23,7 @@ public class WorkstationRegistry
         RegisterProfile(new WorkstationProfile(
             Id: "fedora-kde",
             DisplayName: "Fedora 43 + KDE Plasma 6 (Default)",
-            DistroName: "Fedora-KDE-Plasma-WSLg",
+            DistroName: "Fedora-KDE",
             DistroBase: _distroBases["fedora"],
             DesktopEnvironment: _desktopEnvironments["kde-plasma"],
             RdpPort: 3390,
