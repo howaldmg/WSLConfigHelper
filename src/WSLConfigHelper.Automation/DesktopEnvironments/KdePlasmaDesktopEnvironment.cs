@@ -252,7 +252,7 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
             rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
 
             echo "Starting nested X server (Xephyr) on WSLg host display :0 ({options.Width}x{options.Height})..."
-            Xephyr :1 -screen {options.Width}x{options.Height} -title "KDE Plasma Desktop (WSLg Native)" -ac -br -reset -terminate &
+            Xephyr :1 -screen {options.Width}x{options.Height} -title "KDE Plasma Desktop (WSLg Native)" -glamor -ac -br -reset -terminate &
             XEPHYR_PID=$!
 
             sleep 1

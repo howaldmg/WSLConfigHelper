@@ -36,6 +36,12 @@ public class FedoraDistroBase : IDistroBase
             EOF
             chmod +x /etc/profile.d/wsl-d3d12.sh
 
+            cat << 'EOF' > /etc/environment
+            LIBGL_ALWAYS_SOFTWARE=0
+            MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+            GALLIUM_DRIVER=d3d12
+            EOF
+
             # 3. Configure DNF cache persistence
             {dnfConf}
 
