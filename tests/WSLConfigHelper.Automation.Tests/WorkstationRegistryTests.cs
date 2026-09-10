@@ -13,7 +13,7 @@ public class WorkstationRegistryTests
         var registry = new WorkstationRegistry();
 
         var curated = registry.GetCuratedProfiles();
-        Assert.Contains(curated, p => p.Id == "fedora-kde" && p.DistroName == "Fedora-Desktop" && p.RdpPort == 3390);
+        Assert.Contains(curated, p => p.Id == "fedora-kde" && p.DistroName == "Fedora-KDE-Plasma-WSLg" && p.RdpPort == 3390);
         Assert.Contains(curated, p => p.Id == "fedora-xfce" && p.DistroName == "Fedora-XFCE" && p.RdpPort == 3391);
         Assert.Contains(curated, p => p.Id == "ubuntu-kde" && p.DistroName == "Ubuntu-KDE" && p.RdpPort == 3392);
         Assert.Contains(curated, p => p.Id == "ubuntu-xfce" && p.DistroName == "Ubuntu-XFCE" && p.RdpPort == 3393);
@@ -30,7 +30,7 @@ public class WorkstationRegistryTests
 
         var profile = registry.GetProfile("fedora-kde");
         Assert.NotNull(profile);
-        Assert.Equal("Fedora-Desktop", profile.DistroName);
+        Assert.Equal("Fedora-KDE-Plasma-WSLg", profile.DistroName);
         Assert.Equal("fedora", profile.DistroBase.Id);
         Assert.Equal("kde-plasma", profile.DesktopEnvironment.Id);
         Assert.Equal(3390, profile.RdpPort);
