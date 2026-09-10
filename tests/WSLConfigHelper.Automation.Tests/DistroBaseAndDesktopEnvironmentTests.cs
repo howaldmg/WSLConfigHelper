@@ -23,6 +23,7 @@ public class DistroBaseAndDesktopEnvironmentTests
         Assert.Contains("usermod -aG wheel,input \"developer\"", recorder.LastBashCommand);
         Assert.Contains("echo \"developer:developer\" | chpasswd", recorder.LastBashCommand);
         Assert.Contains("loginctl enable-linger \"developer\"", recorder.LastBashCommand);
+        Assert.Contains("polkit.addRule", recorder.LastBashCommand);
     }
 
     [Fact]
@@ -41,6 +42,7 @@ public class DistroBaseAndDesktopEnvironmentTests
         await ubuntu.EnsureUserAsync("Ubuntu-XFCE", "developer", recorder);
         Assert.Contains("usermod -aG sudo,input,ssl-cert \"developer\"", recorder.LastBashCommand);
         Assert.Contains("echo \"developer:developer\" | chpasswd", recorder.LastBashCommand);
+        Assert.Contains("polkit.addRule", recorder.LastBashCommand);
     }
 
     [Fact]
@@ -51,11 +53,13 @@ public class DistroBaseAndDesktopEnvironmentTests
         var aptPackages = kde.GetPackageList(PackageManagerType.Apt);
 
         Assert.Contains("@kde-desktop-environment", dnfPackages);
+        Assert.Contains("xorg-x11-server-Xephyr", dnfPackages);
         Assert.Contains("plasma-workspace-x11", dnfPackages);
         Assert.Contains("xrdp", dnfPackages);
         Assert.Contains("pipewire-module-xrdp", dnfPackages);
         Assert.Contains("pulseaudio-utils", dnfPackages);
         Assert.Contains("kde-standard", aptPackages);
+        Assert.Contains("xserver-xephyr", aptPackages);
         Assert.Contains("xrdp", aptPackages);
 
         var xfce = new XfceDesktopEnvironment();
@@ -63,10 +67,12 @@ public class DistroBaseAndDesktopEnvironmentTests
         var xfceApt = xfce.GetPackageList(PackageManagerType.Apt);
 
         Assert.Contains("@xfce-desktop-environment", xfceDnf);
+        Assert.Contains("xorg-x11-server-Xephyr", xfceDnf);
         Assert.Contains("xrdp", xfceDnf);
         Assert.Contains("pipewire-module-xrdp", xfceDnf);
         Assert.Contains("pulseaudio-utils", xfceDnf);
         Assert.Contains("xfce4", xfceApt);
+        Assert.Contains("xserver-xephyr", xfceApt);
     }
 
     [Fact]
@@ -110,5 +116,43 @@ public class DistroBaseAndDesktopEnvironmentTests
         Assert.Contains("pipewire-module-xrdp", recorder.LastBashCommand);
         Assert.Contains("exec dbus-run-session startxfce4", recorder.LastBashCommand);
         Assert.Contains("systemctl restart xrdp", recorder.LastBashCommand);
+    }
+
+    [Fact]
+    public async Task KdePlasmaDesktopEnvironmentConfiguresNativeWslgViewport()
+    {
+        var recorder = new ViewportRunnerRecorder();
+        var kde = new KdePlasmaDesktopEnvironment();
+        var options = new ViewportOptions(Width: 2560, Height: 1440, User: "developer");
+
+        var result = await kde.ConfigureNativeWslgViewportAsync("Fedora-Desktop", recorder, options);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("Fedora-Desktop", recorder.LastDistro);
+        Assert.Equal("root", recorder.LastUser);
+        Assert.Contains("start-plasma-wslg", recorder.LastBashCommand);
+        Assert.Contains("xorg-x11-server-Xephyr", recorder.LastBashCommand);
+        Assert.Contains("Xephyr :1 -screen 2560x1440", recorder.LastBashCommand);
+        Assert.Contains("startplasma-x11", recorder.LastBashCommand);
+        Assert.Contains("chmod +x /usr/local/bin/start-plasma-wslg", recorder.LastBashCommand);
+    }
+
+    [Fact]
+    public async Task XfceDesktopEnvironmentConfiguresNativeWslgViewport()
+    {
+        var recorder = new ViewportRunnerRecorder();
+        var xfce = new XfceDesktopEnvironment();
+        var options = new ViewportOptions(Width: 1920, Height: 1080, User: "developer");
+
+        var result = await xfce.ConfigureNativeWslgViewportAsync("Fedora-XFCE", recorder, options);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("Fedora-XFCE", recorder.LastDistro);
+        Assert.Equal("root", recorder.LastUser);
+        Assert.Contains("start-xfce-wslg", recorder.LastBashCommand);
+        Assert.Contains("Xephyr :1 -screen 1920x1080", recorder.LastBashCommand);
+        Assert.Contains("export DISPLAY=:1", recorder.LastBashCommand);
+        Assert.Contains("startxfce4", recorder.LastBashCommand);
+        Assert.Contains("chmod +x /usr/local/bin/start-xfce-wslg", recorder.LastBashCommand);
     }
 }

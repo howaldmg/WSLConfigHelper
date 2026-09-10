@@ -8,6 +8,7 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
     public string DisplayName => "KDE Plasma 6";
     public int DefaultRdpPort => 3390;
     public DesktopProtocol Protocol => DesktopProtocol.Xrdp;
+    public string NativeWslgScriptPath => "/usr/local/bin/start-plasma-wslg";
 
     public IReadOnlyList<DesktopAppShortcut> RecommendedApps => new List<DesktopAppShortcut>
     {
@@ -24,6 +25,7 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
             PackageManagerType.Dnf => new[]
             {
                 "@kde-desktop-environment",
+                "xorg-x11-server-Xephyr",
                 "plasma-workspace-x11",
                 "xrdp",
                 "xorgxrdp",
@@ -37,6 +39,8 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
             PackageManagerType.Apt => new[]
             {
                 "kde-standard",
+                "xserver-xephyr",
+                "plasma-workspace-x11",
                 "xrdp",
                 "xorgxrdp",
                 "pipewire",
@@ -53,10 +57,12 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
         CancellationToken ct = default)
     {
         var script = """
-            if command -v startplasma-x11 >/dev/null 2>&1; then
-                echo "INSTALLED:$(startplasma-x11 --version 2>&1 | head -n 1)"
+            if command -v plasmashell >/dev/null 2>&1; then
+                echo "INSTALLED:$(plasmashell --version 2>&1 | tail -n 1)"
+            elif command -v kwin_wayland >/dev/null 2>&1; then
+                echo "INSTALLED:$(kwin_wayland --version 2>&1 | tail -n 1)"
             elif command -v kwin_x11 >/dev/null 2>&1; then
-                echo "INSTALLED:$(kwin_x11 --version 2>&1 | head -n 1)"
+                echo "INSTALLED:$(kwin_x11 --version 2>&1 | tail -n 1)"
             else
                 echo "NOT_INSTALLED"
             fi
@@ -167,9 +173,111 @@ public class KdePlasmaDesktopEnvironment : IDesktopEnvironment
             rm -f /usr/share/dbus-1/services/org.bluez.obex.service 2>/dev/null || true
             killall -9 obexd 2>/dev/null || true
 
-            # 5. Enable and start xrdp system service
+            # 5. Disable Discover fwupd plugin in WSL2 virtual environments to avoid GDBus errors
+            if [ -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so /usr/lib64/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
+            fi
+            if [ -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
+            fi
+
+            # 6. Enable and start xrdp system service
             systemctl enable xrdp 2>/dev/null || true
             systemctl restart xrdp 2>/dev/null || true
+            """;
+
+        return await runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: ct);
+    }
+
+    public async Task<WslExecutionResult> ConfigureNativeWslgViewportAsync(
+        string distro,
+        IWslProcessRunner runner,
+        ViewportOptions options,
+        CancellationToken ct = default)
+    {
+        var script = $"""
+            # Ensure Xephyr is installed
+            if ! command -v Xephyr >/dev/null 2>&1; then
+                if command -v dnf >/dev/null 2>&1; then
+                    dnf install -y xorg-x11-server-Xephyr 2>/dev/null || true
+                elif command -v apt-get >/dev/null 2>&1; then
+                    apt-get update -y 2>/dev/null && apt-get install -y xserver-xephyr 2>/dev/null || true
+                fi
+            fi
+
+            # Disable Discover fwupd plugin in WSL2 virtual environments
+            if [ -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib64/qt6/plugins/discover/fwupd-backend.so /usr/lib64/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
+            fi
+            if [ -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so ]; then
+                mv -f /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so /usr/lib/x86_64-linux-gnu/qt6/plugins/discover/fwupd-backend.so.disabled 2>/dev/null || true
+            fi
+
+            cat << 'EOF' > {NativeWslgScriptPath}
+            #!/bin/bash
+            set -e
+
+            # 1. Ensure user runtime directory exists
+            if [ -z "$XDG_RUNTIME_DIR" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then
+                export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+                if [ ! -d "$XDG_RUNTIME_DIR" ]; then
+                    export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
+                    mkdir -p "$XDG_RUNTIME_DIR"
+                    chmod 0700 "$XDG_RUNTIME_DIR"
+                fi
+            fi
+
+            # 2. Check WSLg host display socket availability
+            if [ ! -S /tmp/.X11-unix/X0 ] && [ ! -S /mnt/wslg/runtime-dir/wayland-0 ]; then
+                echo "================================================================"
+                echo " Error: WSLg display socket not detected!"
+                echo " Your .wslconfig may have 'guiApplications=false'."
+                echo " To use WSLg nested window, enable 'guiApplications=true' in"
+                echo " %USERPROFILE%\\.wslconfig and run 'wsl --shutdown'."
+                echo "================================================================"
+                exit 1
+            fi
+
+            # 3. Hardware acceleration & rendering
+            export LIBGL_ALWAYS_SOFTWARE=0
+            export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+            export GALLIUM_DRIVER=d3d12
+
+            # Configure sound server
+            if [ -S /mnt/wslg/PulseServer ]; then
+                export PULSE_SERVER=unix:/mnt/wslg/PulseServer
+            fi
+
+            # Clean up stale locks for display :1
+            rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+
+            echo "Starting nested X server (Xephyr) on WSLg host display :0 ({options.Width}x{options.Height})..."
+            Xephyr :1 -screen {options.Width}x{options.Height} -title "KDE Plasma Desktop (WSLg Native)" -glamor -ac -br -reset -terminate &
+            XEPHYR_PID=$!
+
+            sleep 1
+
+            export DISPLAY=:1
+            export GDK_BACKEND=x11
+            export QT_QPA_PLATFORM=xcb
+            export XDG_CURRENT_DESKTOP=KDE
+            export XDG_SESSION_DESKTOP=KDE
+            export KDE_SESSION_VERSION=6
+
+            echo "Starting KDE Plasma session on display :1..."
+            if [ -S "$XDG_RUNTIME_DIR/bus" ]; then
+                export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+                startplasma-x11 &
+                PLASMA_PID=$!
+            else
+                dbus-run-session startplasma-x11 &
+                PLASMA_PID=$!
+            fi
+
+            trap "kill -TERM $XEPHYR_PID $PLASMA_PID 2>/dev/null" SIGINT SIGTERM EXIT
+            wait $XEPHYR_PID
+            EOF
+            chmod +x {NativeWslgScriptPath}
             """;
 
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: ct);

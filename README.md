@@ -4,7 +4,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3" /></a>
   <img src="https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet" alt=".NET 10" />
   <img src="https://img.shields.io/badge/Platform-Windows%20%7C%20WSL2-0078D6?logo=windows" alt="Platform" />
-  <img src="https://img.shields.io/badge/Tests-41%20Passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/Tests-55%20Passing-brightgreen" alt="Tests" />
   <img src="https://img.shields.io/badge/Console-Spectre.Console-green" alt="Spectre.Console" />
 </p>
 
@@ -122,15 +122,31 @@ cd WSLConfigHelper
 dotnet run --project src/WSLConfigHelper.Cli
 ```
 
-### Command Options
+### Command Options & Subcommands
 ```text
-Usage: wslconfig-helper [options]
+Usage: wslconfig-helper [command] [options]
 
-Options:
-  -c, --config <path>   Specify a custom path to .wslconfig (default: %USERPROFILE%\.wslconfig)
-  --license             Display license information (GNU GPLv3)
-  -h, --help            Show help and usage information
+Commands: (Launches interactive TUI if omitted)
+  launch <distro> [--rdp]       Launch workstation desktop (WSLg native viewport by default, or --rdp)
+  provision <distro> [--with-desktop] Non-interactively provision base distro and optional full desktop
+  teardown <distro> [--force]   Guarded unregister & deletion of a workstation instance
+  status                        Show status table of all workstations and GPU-PV state
+  clean-launchers               Remove orphaned .cmd and .rdp launcher files in working directory
+
+Global Options:
+  -c, --config <path>           Specify a custom path to .wslconfig (default: %USERPROFILE%\.wslconfig)
+  --license                     Display license information (GNU GPLv3)
+  -h, --help                    Show help and usage information
 ```
+
+#### Provisioning Options:
+* `wslconfig-helper provision <distro>`: Provisions the base WSL2 instance, configures systemd, GPU-PV (`/dev/dxg`), and the `developer` user. Lean and fast foundation.
+* `wslconfig-helper provision <distro> --with-desktop`: Performs base provisioning plus full desktop environment package installation (KDE Plasma 6 or XFCE 4) and PipeWire audio stack.
+
+#### Teardown Guardrails:
+* `wslconfig-helper teardown <distro>` prompts you to type the instance name (e.g. `Fedora-KDE`) before destroying the virtual disk and unregistering the instance.
+* To bypass interactive confirmation for automated scripts or CI, pass `--force` (or `-f`).
+
 
 ### Building & Running Tests
 ```powershell

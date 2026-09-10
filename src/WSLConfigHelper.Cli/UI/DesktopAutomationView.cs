@@ -44,12 +44,12 @@ public class DesktopAutomationView
             var statusBadge = distroExists ? "[green bold]Installed / Available[/]" : "[yellow]Not Yet Provisioned[/]";
 
             var grid = new Grid();
-            grid.AddColumn(new GridColumn().PadRight(2));
+            grid.AddColumn(new GridColumn().PadRight(4));
             grid.AddColumn(new GridColumn());
             grid.AddRow("[grey]Workstation Profile:[/] [bold white]" + _activeProfile.DisplayName + "[/]", $"[grey]Distro Status:[/] {statusBadge}");
-            grid.AddRow("[grey]WSL Instance Name:[/] [white]" + _activeProfile.DistroName + "[/]", $"[grey]RDP Port:[/] [bold cyan]{_activeProfile.DesktopEnvironment.DefaultRdpPort}[/]");
-            grid.AddRow("[grey]Base Distribution:[/] [white]" + _activeProfile.DistroBase.DisplayName + $" ({_activeProfile.DistroBase.PackageManager})[/]", "[grey]GPU Backend:[/] [white]Mesa D3D12 (/dev/dxg)[/]");
-            grid.AddRow("[grey]Desktop Shell:[/] [white]" + _activeProfile.DesktopEnvironment.DisplayName + $" ({_activeProfile.DesktopEnvironment.Protocol})[/]", "[grey]Default User:[/] [white]developer[/]");
+            grid.AddRow("[grey]WSL Instance Name:[/]   [white]" + _activeProfile.DistroName + "[/]", $"[grey]WSLg Viewport:[/] [bold green]Active (Monitor Native Hz)[/]");
+            grid.AddRow("[grey]Base Distribution:[/]   [white]" + _activeProfile.DistroBase.DisplayName + $" ({_activeProfile.DistroBase.PackageManager})[/]", $"[grey]RDP Viewport:[/]  [dim]localhost:{_activeProfile.RdpPort} (Optional Fallback)[/]");
+            grid.AddRow("[grey]Desktop Shell:[/]       [white]" + _activeProfile.DesktopEnvironment.DisplayName + "[/]", "[grey]GPU Backend:[/]   [white]Mesa D3D12 (/dev/dxg GPU-PV)[/]");
 
             AnsiConsole.Write(new Panel(grid)
             {
@@ -60,50 +60,60 @@ public class DesktopAutomationView
 
             var menu = new SelectionPrompt<string>()
                 .Title("[bold]Automation Operations & Phased Checkpoints:[/]")
-                .PageSize(10)
+                .PageSize(12)
                 .AddChoices(
-                    "1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
-                    $"2. 📦 Phase 1: Provision {_activeProfile.DistroName} & GPU-PV (Mesa D3D12)",
-                    $"3. 🎨 Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio",
-                    $"4. 🖥️ Phase 3: Launch Full Desktop (RDP Viewport : {_activeProfile.DesktopEnvironment.DefaultRdpPort})",
-                    $"5. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
-                    "6. 🔄 Switch / Create Workstation Profile",
-                    $"7. 🛑 Stop / Shutdown {_activeProfile.DistroName} (wsl --terminate)",
-                    "8. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
-                    "9. 🚪 ← Back to Main Menu"
+                    " 1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
+                    $" 2. 📦 Phase 1: Provision {_activeProfile.DistroName} & GPU-PV (Mesa D3D12)",
+                    $" 3. 🎨 Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio",
+                    $" 4. 🚀 Phase 3: Launch Native Framerate Desktop (WSLg Viewport - Monitor Hz)",
+                    $" 5. 🖥️  Phase 3 (Fallback): Launch Desktop via RDP (Port {_activeProfile.RdpPort})",
+                    $" 6. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
+                    " 7. 🔄 Switch / Create Workstation Profile",
+                    $" 8. 🛑 Stop / Terminate {_activeProfile.DistroName}",
+                    $" 9. 🗑️  Tear Down / Unregister {_activeProfile.DistroName} (Reset)",
+                    "10. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
+                    "11. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
 
-            if (choice.StartsWith("1."))
+            if (choice.Contains(" 1."))
             {
                 await RunDiagnosticsAsync(distroExists);
             }
-            else if (choice.StartsWith("2."))
+            else if (choice.Contains(" 2."))
             {
                 await RunPhase1Async(distroExists);
             }
-            else if (choice.StartsWith("3."))
+            else if (choice.Contains(" 3."))
             {
                 await RunPhase2Async(distroExists);
             }
-            else if (choice.StartsWith("4."))
+            else if (choice.Contains(" 4."))
+            {
+                await RunPhase3WslgNativeAsync(distroExists);
+            }
+            else if (choice.Contains(" 5."))
             {
                 await RunPhase3RdpAsync(distroExists);
             }
-            else if (choice.StartsWith("5."))
+            else if (choice.Contains(" 6."))
             {
                 await RunPhase4WslgAppsAsync(distroExists);
             }
-            else if (choice.StartsWith("6."))
+            else if (choice.Contains(" 7."))
             {
                 await SwitchOrCreateProfileAsync();
             }
-            else if (choice.StartsWith("7."))
+            else if (choice.Contains(" 8."))
             {
                 await StopWorkstationAsync();
             }
-            else if (choice.StartsWith("8."))
+            else if (choice.Contains(" 9."))
+            {
+                await TeardownWorkstationAsync();
+            }
+            else if (choice.Contains("10."))
             {
                 await RunPhase5SunshineAsync(distroExists);
             }
@@ -308,6 +318,88 @@ public class DesktopAutomationView
         ConsoleRenderer.PressEnterToContinue();
     }
 
+    private async Task RunPhase3WslgNativeAsync(bool distroExists)
+    {
+        AnsiConsole.Clear();
+        AnsiConsole.Write(new Rule($"[bold cyan]Phase 3: Launch Native Framerate Desktop ({_activeProfile.DesktopEnvironment.DisplayName} WSLg Viewport)[/]") { Justification = Justify.Left });
+
+        if (!distroExists)
+        {
+            AnsiConsole.MarkupLine($"[yellow]'{_activeProfile.DistroName}' is not yet provisioned.[/] Complete Phase 1 and Phase 2 first.");
+            ConsoleRenderer.PressEnterToContinue();
+            return;
+        }
+
+        AnsiConsole.MarkupLine("[grey]Deploys a native-framerate, direct GPU-PV nested desktop window running at your host monitor's refresh rate (144Hz/240Hz+).[/]");
+        AnsiConsole.MarkupLine("[grey]Bypasses RDP network streaming and Sunshine encoding with zero compression artifacts.[/]\n");
+
+        int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
+        int height = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Height (pixels):").DefaultValue(1080));
+
+        AnsiConsole.MarkupLine("[cyan]Configuring native WSLg viewport script...[/]");
+        var options = new ViewportOptions(Width: width, Height: height, User: "developer");
+        var result = await _activeProfile.DesktopEnvironment.ConfigureNativeWslgViewportAsync(_activeProfile.DistroName, _runner, options);
+
+        if (!result.Success)
+        {
+            AnsiConsole.MarkupLine($"[red bold]Failed to configure script:[/] {Markup.Escape(result.StandardError)}");
+            ConsoleRenderer.PressEnterToContinue();
+            return;
+        }
+
+        AnsiConsole.MarkupLine($"[green]✓ Native viewport configured at {_activeProfile.DesktopEnvironment.NativeWslgScriptPath}![/]");
+
+        // Generate Windows .cmd launcher
+        await GenerateWindowsWslgLauncherAsync(_activeProfile.DistroName, _activeProfile.DesktopEnvironment.NativeWslgScriptPath);
+
+        string backendDesc = _activeProfile.DesktopEnvironment.Id == "kde-plasma"
+            ? "Nested KWin Wayland (wayland-0)"
+            : "Nested Xephyr (X11 / D3D12)";
+
+        var infoPanel = new Panel(new Markup(
+            "[bold white]Native Framerate WSLg Viewport Details:[/]\n\n" +
+            $"• Compositor / Backend: [bold green]{backendDesc}[/]\n" +
+            $"• Resolution:           [bold cyan]{width}x{height}[/]\n" +
+            "• Refresh Rate:         [bold green]Native Host Monitor (Uncapped / VSync)[/]\n" +
+            "• Rendering:            [bold cyan]Mesa D3D12 via /dev/dxg (DirectX 12 GPU-PV)[/]\n" +
+            "• Latency:              [bold green]Zero-Network Direct IPC (Shared Surfaces)[/]\n\n" +
+            $"[grey]Generated launcher in current directory:[/] [cyan]launch-{_activeProfile.DistroName.ToLowerInvariant()}-wslg.cmd[/]"
+        ))
+        {
+            Border = BoxBorder.Rounded,
+            Header = new PanelHeader($" {_activeProfile.DesktopEnvironment.DisplayName} Native Viewport ")
+        };
+        AnsiConsole.Write(infoPanel);
+        AnsiConsole.WriteLine();
+
+        if (AnsiConsole.Confirm($"Launch {_activeProfile.DesktopEnvironment.DisplayName} native desktop window now?", defaultValue: true))
+        {
+            AnsiConsole.MarkupLine("[cyan]Launching native desktop window via WSLg...[/]");
+            _viewportManager.LaunchWslgViewport(_activeProfile.DistroName, "developer", _activeProfile.DesktopEnvironment.NativeWslgScriptPath);
+            AnsiConsole.MarkupLine("[green]✓ Window launched! Look for the desktop window on your Windows desktop.[/]");
+        }
+
+        ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private async Task GenerateWindowsWslgLauncherAsync(string distroName, string scriptPath)
+    {
+        try
+        {
+            var cmdContent = $"""
+                @echo off
+                echo Launching {distroName} desktop at native monitor refresh rate via WSLg...
+                wsl -d {distroName} -u developer -- {scriptPath}
+                """;
+
+            await File.WriteAllTextAsync($"launch-{distroName.ToLowerInvariant()}-wslg.cmd", cmdContent);
+        }
+        catch
+        {
+            // Best effort convenience generation
+        }
+    }
+
     private async Task RunPhase3RdpAsync(bool distroExists)
     {
         AnsiConsole.Clear();
@@ -320,7 +412,7 @@ public class DesktopAutomationView
             return;
         }
 
-        int defaultPort = _activeProfile.DesktopEnvironment.DefaultRdpPort;
+        int defaultPort = _activeProfile.RdpPort;
         AnsiConsole.MarkupLine($"[grey]Deploys a virtual 60fps {_activeProfile.DesktopEnvironment.DisplayName} desktop exposed via {_activeProfile.DesktopEnvironment.Protocol} on port {defaultPort}.[/]\n");
 
         int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
@@ -468,11 +560,11 @@ public class DesktopAutomationView
 
         foreach (var p in profiles)
         {
-            var activeMarker = p.Id == _activeProfile.Id ? " (Active)" : "";
-            menuChoices.Add($"{p.DisplayName} ({p.DistroName} : {p.DesktopEnvironment.DefaultRdpPort}){activeMarker}");
+            var activeMarker = p.Id == _activeProfile.Id ? " [bold green](Active)[/]" : "";
+            menuChoices.Add($"{p.DisplayName} [{p.DistroName}]{activeMarker}");
         }
-        menuChoices.Add("🛠️ Create Custom Profile (Mix & Match Distro Base + Desktop)");
-        menuChoices.Add("← Cancel");
+        menuChoices.Add("🛠️  Create Custom Profile (Mix & Match Distro Base + Desktop)");
+        menuChoices.Add("🚪 ← Cancel");
 
         var choice = AnsiConsole.Prompt(
             new SelectionPrompt<string>()
@@ -502,7 +594,7 @@ public class DesktopAutomationView
             var deChoice = AnsiConsole.Prompt(
                 new SelectionPrompt<string>()
                     .Title("Choose Desktop Environment:")
-                    .AddChoices(des.Select(d => $"{d.DisplayName} (Port {d.DefaultRdpPort})"))
+                    .AddChoices(des.Select(d => d.DisplayName))
             );
             var selectedDe = des.First(d => deChoice.StartsWith(d.DisplayName));
 
@@ -513,9 +605,16 @@ public class DesktopAutomationView
                     .DefaultValue(defaultName)
             );
 
-            var newProfile = _registry.CreateCustomProfile(selectedBase, selectedDe, customName);
+            int nextPort = _registry.GetNextAvailablePort();
+            AnsiConsole.MarkupLine("\n[bold cyan]4. Enter RDP Viewport Port:[/]");
+            int customPort = AnsiConsole.Prompt(
+                new TextPrompt<int>("RDP Port:")
+                    .DefaultValue(nextPort)
+            );
+
+            var newProfile = _registry.CreateCustomProfile(selectedBase, selectedDe, customName, customPort);
             _activeProfile = newProfile;
-            AnsiConsole.MarkupLine($"\n[green bold]✓ Custom profile created and activated: {newProfile.DisplayName}![/]");
+            AnsiConsole.MarkupLine($"\n[green bold]✓ Custom profile created and activated: {newProfile.DisplayName} (Port {newProfile.RdpPort})![/]");
             ConsoleRenderer.PressEnterToContinue();
             return;
         }
@@ -536,6 +635,78 @@ public class DesktopAutomationView
         await _distroManager.TerminateDistroAsync(_activeProfile.DistroName);
         AnsiConsole.MarkupLine($"[green bold]✓ {_activeProfile.DistroName} successfully stopped.[/]");
         ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private async Task TeardownWorkstationAsync()
+    {
+        AnsiConsole.Clear();
+        var distroName = _activeProfile.DistroName;
+
+        var dangerPanel = new Panel(new Markup(
+            "[bold red]⚠️  DANGER ZONE: Permanent Workstation Deletion[/]\n\n" +
+            $"You are about to permanently unregister and delete: [bold white]{distroName}[/]\n\n" +
+            "This action [bold red]CANNOT[/] be undone:\n" +
+            "  • Destroys the virtual disk ([cyan]ext4.vhdx[/]) and all data inside the instance\n" +
+            "  • Removes WSL registration for this distro\n" +
+            "  • Deletes local launcher shortcuts and RDP profiles\n\n" +
+            "[grey]Note: Base cached images (.tar) are preserved for instant rebuilds.[/]"
+        ))
+        {
+            Border = BoxBorder.Heavy,
+            BorderStyle = Style.Parse("red")
+        };
+        AnsiConsole.Write(dangerPanel);
+        AnsiConsole.WriteLine();
+
+        var confirmation = AnsiConsole.Prompt(
+            new TextPrompt<string>($"To confirm deletion, please type [bold red]{distroName}[/] or press Enter to abort:")
+                .AllowEmpty()
+        );
+
+        if (!string.Equals(confirmation?.Trim(), distroName, StringComparison.OrdinalIgnoreCase))
+        {
+            AnsiConsole.MarkupLine("\n[grey]Teardown aborted. No changes were made.[/]");
+            ConsoleRenderer.PressEnterToContinue();
+            return;
+        }
+
+        AnsiConsole.WriteLine();
+        await AnsiConsole.Status()
+            .Spinner(Spinner.Known.Dots)
+            .StartAsync($"Terminating and unregistering {distroName}...", async _ =>
+            {
+                await _distroManager.UnregisterDistroAsync(distroName);
+                CleanupDistroLaunchers(distroName);
+            });
+
+        AnsiConsole.MarkupLine($"[green bold]✓ {distroName} has been completely uninstalled and cleaned up.[/]");
+        ConsoleRenderer.PressEnterToContinue();
+    }
+
+    private static void CleanupDistroLaunchers(string distroName)
+    {
+        var filesToDelete = new[]
+        {
+            $"launch-{distroName.ToLowerInvariant()}-wslg.cmd",
+            $"connect-{distroName.ToLowerInvariant()}.cmd",
+            $"{distroName}.rdp",
+            $"{distroName.ToUpperInvariant()}.rdp"
+        };
+
+        foreach (var file in filesToDelete)
+        {
+            try
+            {
+                if (File.Exists(file))
+                {
+                    File.Delete(file);
+                }
+            }
+            catch
+            {
+                // Best effort cleanup
+            }
+        }
     }
 
     private async Task RunPhase5SunshineAsync(bool distroExists)

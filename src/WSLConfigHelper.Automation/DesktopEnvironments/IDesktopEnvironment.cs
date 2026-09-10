@@ -18,7 +18,15 @@ public interface IDesktopEnvironment
         IWslProcessRunner runner,
         CancellationToken ct = default);
 
+    string NativeWslgScriptPath { get; }
+
     Task<WslExecutionResult> ConfigureViewportServiceAsync(
+        string distro,
+        IWslProcessRunner runner,
+        ViewportOptions options,
+        CancellationToken ct = default);
+
+    Task<WslExecutionResult> ConfigureNativeWslgViewportAsync(
         string distro,
         IWslProcessRunner runner,
         ViewportOptions options,
