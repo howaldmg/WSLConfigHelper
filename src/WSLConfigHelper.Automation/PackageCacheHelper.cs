@@ -66,50 +66,101 @@ public class PackageCacheHelper
             """;
     }
 
-    public string BuildDnfInstallScript(string distroId, IEnumerable<string> packages, string? coprPrefix = null)
+    public string BuildDnfInstallScript(string distroId, IEnumerable<string> packages, string? coprPrefix = null, bool noCache = false)
     {
         var wslCacheDir = GetWslCacheDirectory(distroId);
         var packageList = packages.ToList();
         var packageArgs = string.Join(" ", packageList);
         var copr = string.IsNullOrWhiteSpace(coprPrefix) ? "" : coprPrefix.TrimEnd() + "\n";
 
+        if (noCache)
+        {
+            return $"""
+                {copr}mkdir -p "{wslCacheDir}"
+
+                # Install directly from online mirrors (bypassing local cache repository)
+                dnf install -y --disablerepo=wsl-local {packageArgs} 2>/dev/null || dnf install -y {packageArgs}
+
+                # Update host cache repository with newly downloaded packages
+                find /var/cache/libdnf5 /var/cache/dnf -type f -name "*.rpm" 2>/dev/null | while read -r rpm; do
+                    cp -u "$rpm" "{wslCacheDir}/" 2>/dev/null || true
+                done
+
+                # Index local repository on the host if createrepo_c is available
+                if command -v createrepo_c >/dev/null 2>&1; then
+                    createrepo_c --update "{wslCacheDir}" >/dev/null 2>&1 || true
+                fi
+
+                # Clean package cache in guest to reclaim ext4 disk space
+                dnf clean packages -y 2>/dev/null || true
+                """;
+        }
+
         return $"""
             {copr}mkdir -p "{wslCacheDir}"
-            mkdir -p /var/cache/wsl-pkg-staging
 
-            # Stage cached RPM packages if available
-            if ls "{wslCacheDir}"/*.rpm >/dev/null 2>&1; then
-                cp -u "{wslCacheDir}"/*.rpm /var/cache/wsl-pkg-staging/ 2>/dev/null || true
+            # 1. Wire local file repository if not present
+            if [ ! -f /etc/yum.repos.d/wsl-local.repo ]; then
+                cat << 'EOF' > /etc/yum.repos.d/wsl-local.repo
+            [wsl-local]
+            name=WSL Local Package Cache
+            baseurl=file://{wslCacheDir}
+            enabled=1
+            gpgcheck=0
+            cost=50
+            EOF
             fi
 
-            # Install: if staged packages exist, include them for local resolution
-            if ls /var/cache/wsl-pkg-staging/*.rpm >/dev/null 2>&1; then
-                dnf install -y /var/cache/wsl-pkg-staging/*.rpm {packageArgs}
-            else
-                dnf install -y {packageArgs}
+            # 2. If repodata is not yet initialized and createrepo_c is available, create index
+            if [ ! -d "{wslCacheDir}/repodata" ] && command -v createrepo_c >/dev/null 2>&1; then
+                createrepo_c "{wslCacheDir}" >/dev/null 2>&1 || true
             fi
 
-            # Persist newly downloaded RPMs back to host cache
+            # 3. Install packages (DNF prioritizes wsl-local repo due to cost=50)
+            dnf install -y {packageArgs}
+
+            # 4. Sync newly downloaded RPMs back to host cache
             find /var/cache/libdnf5 /var/cache/dnf -type f -name "*.rpm" 2>/dev/null | while read -r rpm; do
                 cp -u "$rpm" "{wslCacheDir}/" 2>/dev/null || true
             done
 
-            rm -rf /var/cache/wsl-pkg-staging
+            # 5. Keep local repo index up to date
+            if command -v createrepo_c >/dev/null 2>&1; then
+                createrepo_c --update "{wslCacheDir}" >/dev/null 2>&1 || true
+            fi
+
+            # 6. Clean guest package archives to reclaim ext4 disk space
+            dnf clean packages -y 2>/dev/null || true
             """;
     }
 
-    public string BuildAptInstallScript(string distroId, IEnumerable<string> packages)
+    public string BuildAptInstallScript(string distroId, IEnumerable<string> packages, bool noCache = false)
     {
         var wslCacheDir = GetWslCacheDirectory(distroId);
         var packageArgs = string.Join(" ", packages);
 
+        if (noCache)
+        {
+            return $"""
+                mkdir -p "{wslCacheDir}"
+                DEBIAN_FRONTEND=noninteractive apt-get install -y {packageArgs}
+
+                # Persist newly downloaded DEBs back to host cache
+                if ls /var/cache/apt/archives/*.deb >/dev/null 2>&1; then
+                    cp -u /var/cache/apt/archives/*.deb "{wslCacheDir}/" 2>/dev/null || true
+                fi
+
+                apt-get clean 2>/dev/null || true
+                """;
+        }
+
         return $"""
             mkdir -p "{wslCacheDir}"
-            mkdir -p /var/cache/apt/archives
 
-            # Restore cached DEBs into apt archives
-            if ls "{wslCacheDir}"/*.deb >/dev/null 2>&1; then
-                cp -u "{wslCacheDir}"/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+            # Configure local APT repository if Packages index exists
+            if [ -f "{wslCacheDir}/Packages" ] || [ -f "{wslCacheDir}/Packages.gz" ]; then
+                echo "deb [trusted=yes] file:{wslCacheDir} ./" > /etc/apt/sources.list.d/wsl-local.list
+                apt-get update -o Dir::Etc::sourcelist="sources.list.d/wsl-local.list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0" 2>/dev/null || true
             fi
 
             DEBIAN_FRONTEND=noninteractive apt-get install -y {packageArgs}
@@ -118,6 +169,25 @@ public class PackageCacheHelper
             if ls /var/cache/apt/archives/*.deb >/dev/null 2>&1; then
                 cp -u /var/cache/apt/archives/*.deb "{wslCacheDir}/" 2>/dev/null || true
             fi
+
+            apt-get clean 2>/dev/null || true
             """;
+    }
+
+    public void CleanPackageCache(string? distroId = null)
+    {
+        try
+        {
+            if (distroId != null)
+            {
+                var dir = GetHostCacheDirectory(distroId);
+                if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+            }
+            else
+            {
+                if (Directory.Exists(BaseHostCacheDirectory)) Directory.Delete(BaseHostCacheDirectory, recursive: true);
+            }
+        }
+        catch { }
     }
 }

@@ -3,6 +3,7 @@ using WSLConfigHelper.Automation;
 using WSLConfigHelper.Automation.DesktopEnvironments;
 using WSLConfigHelper.Automation.Workstations;
 using WSLConfigHelper.Core.Storage;
+using WSLConfigHelper.Core.SystemInfo;
 
 namespace WSLConfigHelper.Cli;
 
@@ -30,6 +31,9 @@ public static class Program
                 case "clean-launchers":
                     return HandleCleanLaunchers();
 
+                case "clean-cache":
+                    return HandleCleanCache();
+
                 case "status":
                     return await HandleStatusAsync();
 
@@ -41,6 +45,9 @@ public static class Program
 
                 case "provision":
                     return await HandleProvisionAsync(args.Skip(1).ToArray());
+
+                case "configure":
+                    return await HandleConfigureAsync(args.Skip(1).ToArray());
             }
         }
 
@@ -101,6 +108,19 @@ public static class Program
         return 0;
     }
 
+    private static int HandleCleanCache()
+    {
+        var runner = new WslProcessRunner();
+        var distroManager = new DistroManager(runner);
+        var packageCacheHelper = new PackageCacheHelper();
+
+        distroManager.CleanCache();
+        packageCacheHelper.CleanPackageCache();
+
+        AnsiConsole.MarkupLine("[green bold]✓ WSLConfigHelper base image and package cache cleared successfully.[/]");
+        return 0;
+    }
+
     private static async Task<int> HandleStatusAsync()
     {
         var runner = new WslProcessRunner();
@@ -155,12 +175,29 @@ public static class Program
         if (args.Length == 0)
         {
             AnsiConsole.MarkupLine("[red]Error: Missing workstation profile or distro name.[/]");
-            AnsiConsole.MarkupLine("Usage: [white]wslconfig-helper launch <profile-or-distro> [--rdp][/]");
+            AnsiConsole.MarkupLine("Usage: [white]wslconfig-helper launch <profile-or-distro> [--fullscreen] [--multimon] [--width <w>] [--height <h>][/]");
             return 1;
         }
 
         var target = args[0];
-        bool useRdp = args.Any(a => a.Equals("--rdp", StringComparison.OrdinalIgnoreCase));
+        bool multimon = args.Any(a => a.Equals("--multimon", StringComparison.OrdinalIgnoreCase) || a.Equals("-m", StringComparison.OrdinalIgnoreCase));
+        bool windowed = args.Any(a => a.Equals("--windowed", StringComparison.OrdinalIgnoreCase) || a.Equals("-w", StringComparison.OrdinalIgnoreCase));
+        bool fullscreen = !windowed;
+
+        int? customWidth = null;
+        int? customHeight = null;
+
+        for (int i = 1; i < args.Length; i++)
+        {
+            if (args[i].Equals("--width", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                if (int.TryParse(args[++i], out int w)) customWidth = w;
+            }
+            else if (args[i].Equals("--height", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                if (int.TryParse(args[++i], out int h)) customHeight = h;
+            }
+        }
 
         var registry = new WorkstationRegistry();
         var profile = registry.GetAllProfiles().FirstOrDefault(p =>
@@ -184,18 +221,22 @@ public static class Program
         }
 
         var viewportManager = new ViewportManager(runner);
-        if (useRdp)
-        {
-            AnsiConsole.MarkupLine($"[cyan]Connecting to {profile.DistroName} via RDP (port {profile.RdpPort})...[/]");
-            viewportManager.LaunchWindowsMstsc($"127.0.0.1:{profile.RdpPort}");
-        }
-        else
-        {
-            AnsiConsole.MarkupLine($"[cyan]Launching {profile.DistroName} ({profile.DesktopEnvironment.DisplayName}) at native monitor refresh rate via WSLg...[/]");
-            viewportManager.LaunchWslgViewport(profile.DistroName, "developer", profile.DesktopEnvironment.NativeWslgScriptPath);
-        }
+        AnsiConsole.MarkupLine($"[cyan]Ensuring remote desktop service is active in {profile.DistroName}...[/]");
+        await runner.ExecuteInDistroAsync(profile.DistroName, "systemctl is-active xrdp >/dev/null 2>&1 || systemctl start xrdp", user: "root");
 
-        AnsiConsole.MarkupLine("[green bold]✓ Launch initiated![/]");
+        string rdpPath = $"{profile.DistroName}.rdp";
+        await viewportManager.GenerateOptimizedRdpFileAsync(
+            rdpPath,
+            hostname: "127.0.0.1",
+            port: profile.RdpPort,
+            username: "developer",
+            width: customWidth ?? 0,
+            height: customHeight ?? 0,
+            fullscreen: fullscreen,
+            multimon: multimon);
+
+        AnsiConsole.MarkupLine($"[green bold]✓ Launching {profile.DesktopEnvironment.DisplayName} via Remote Desktop (mstsc.exe)...[/]");
+        viewportManager.LaunchWindowsMstsc(rdpPath);
         return 0;
     }
 
@@ -282,12 +323,22 @@ public static class Program
         if (args.Length == 0)
         {
             AnsiConsole.MarkupLine("[red]Error: Missing workstation profile or distro name.[/]");
-            AnsiConsole.MarkupLine("Usage: [white]wslconfig-helper provision <profile-or-distro> [--with-desktop][/]");
+            AnsiConsole.MarkupLine("Usage: [white]wslconfig-helper provision <profile-or-distro> [--with-desktop] [--no-cache] [--name <custom-distro-name>][/]");
             return 1;
         }
 
         var target = args[0];
         bool withDesktop = args.Any(a => a.Equals("--with-desktop", StringComparison.OrdinalIgnoreCase) || a.Equals("--full", StringComparison.OrdinalIgnoreCase));
+        bool noCache = args.Any(a => a.Equals("--no-cache", StringComparison.OrdinalIgnoreCase) || a.Equals("--fresh", StringComparison.OrdinalIgnoreCase));
+
+        string? customDistroName = null;
+        for (int i = 0; i < args.Length; i++)
+        {
+            if ((args[i].Equals("--name", StringComparison.OrdinalIgnoreCase) || args[i].Equals("-n", StringComparison.OrdinalIgnoreCase)) && i + 1 < args.Length)
+            {
+                customDistroName = args[i + 1];
+            }
+        }
 
         var registry = new WorkstationRegistry();
         var profile = registry.GetAllProfiles().FirstOrDefault(p =>
@@ -301,14 +352,19 @@ public static class Program
             return 1;
         }
 
+        if (!string.IsNullOrWhiteSpace(customDistroName))
+        {
+            profile = profile with { DistroName = customDistroName };
+        }
+
         var runner = new WslProcessRunner();
         var distroManager = new DistroManager(runner);
 
-        AnsiConsole.MarkupLine($"[cyan bold]Phase 1: Provisioning {profile.DistroName} ({profile.DistroBase.DisplayName})...[/]");
+        AnsiConsole.MarkupLine($"[cyan bold]Phase 1: Provisioning {profile.DistroName} ({profile.DistroBase.DisplayName}){(noCache ? " [No Cache]" : "")}...[/]");
         var installResult = await distroManager.InstallDistroAsync(profile.DistroBase.DefaultWslImage, profile.DistroName, line =>
         {
             AnsiConsole.MarkupLine($"[grey]{Markup.Escape(line)}[/]");
-        });
+        }, noCache: noCache);
 
         if (!installResult.Success)
         {
@@ -325,14 +381,13 @@ public static class Program
         AnsiConsole.MarkupLine("[cyan]Setting up 'developer' user...[/]");
         await profile.DistroBase.EnsureUserAsync(profile.DistroName, "developer", runner);
 
-        // Configure WSLg native script
-        var viewportManager = new ViewportManager(runner);
+        // Configure RDP viewport service
         var options = new ViewportOptions(1920, 1080, profile.RdpPort);
-        await profile.DesktopEnvironment.ConfigureNativeWslgViewportAsync(profile.DistroName, runner, options);
+        await profile.DesktopEnvironment.ConfigureViewportServiceAsync(profile.DistroName, runner, options);
 
         if (withDesktop)
         {
-            AnsiConsole.MarkupLine($"\n[cyan bold]Phase 2: Installing {profile.DesktopEnvironment.DisplayName} & audio stack...[/]");
+            AnsiConsole.MarkupLine($"\n[cyan bold]Phase 2: Installing {profile.DesktopEnvironment.DisplayName} & audio stack{(noCache ? " [Direct Upstream]" : "")}...[/]");
             var packages = profile.DesktopEnvironment.GetPackageList(profile.DistroBase.PackageManager);
             await profile.DistroBase.InstallPackagesAsync(profile.DistroName, packages, runner, line =>
             {
@@ -341,8 +396,11 @@ public static class Program
                 {
                     AnsiConsole.MarkupLine($"[dim]{Markup.Escape(line)}[/]");
                 }
-            });
+            }, noCache: noCache);
             AnsiConsole.MarkupLine($"[green bold]✓ {profile.DesktopEnvironment.DisplayName} packages installed successfully![/]");
+            
+            // Re-run viewport service configuration to compile vendor shims and wrap ksystemstats now that desktop packages and gcc are present
+            await profile.DesktopEnvironment.ConfigureViewportServiceAsync(profile.DistroName, runner, options);
         }
 
         AnsiConsole.MarkupLine($"\n[green bold]✓ Workstation '{profile.DistroName}' successfully provisioned![/]");
@@ -358,6 +416,41 @@ public static class Program
         return 0;
     }
 
+    private static async Task<int> HandleConfigureAsync(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            AnsiConsole.MarkupLine("[red]Error: Missing workstation profile or distro name.[/]");
+            AnsiConsole.MarkupLine("Usage: [white]wslconfig-helper configure <profile-or-distro>[/]");
+            return 1;
+        }
+
+        var target = args[0];
+        var registry = new WorkstationRegistry();
+        var profile = registry.GetAllProfiles().FirstOrDefault(p =>
+            string.Equals(p.Id, target, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(p.DistroName, target, StringComparison.OrdinalIgnoreCase));
+
+        if (profile == null)
+        {
+            AnsiConsole.MarkupLine($"[red]Error: Unknown profile '{target}'.[/]");
+            return 1;
+        }
+
+        var runner = new WslProcessRunner();
+        var options = new ViewportOptions(2560, 1440, profile.RdpPort);
+        var result = await profile.DesktopEnvironment.ConfigureViewportServiceAsync(profile.DistroName, runner, options);
+
+        if (result.Success)
+        {
+            AnsiConsole.MarkupLine($"[green bold]✓ Configured RDP viewport service (port {profile.RdpPort}) for {profile.DistroName}[/]");
+            return 0;
+        }
+
+        AnsiConsole.MarkupLine($"[red bold]Failed to configure viewport service:[/] {Markup.Escape(result.StandardError)}");
+        return 1;
+    }
+
     private static void PrintHelp()
     {
         AnsiConsole.MarkupLine("[bold cyan]WSLConfigHelper[/] - Interactive Spectre.Console manager for WSL configuration and workstations");
@@ -365,10 +458,17 @@ public static class Program
         AnsiConsole.MarkupLine("[bold]Usage:[/] [white]wslconfig-helper [[command]] [[options]][/]");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Commands:[/] (Launches interactive TUI if omitted)");
-        AnsiConsole.MarkupLine("  launch <distro> [--rdp]       Launch workstation desktop (WSLg native viewport by default, or --rdp)");
-        AnsiConsole.MarkupLine("  provision <distro> [--with-desktop] Non-interactively provision base distro and optional full desktop");
-        AnsiConsole.MarkupLine("  teardown <distro> [--force]   Guarded unregister & deletion of a workstation instance");
+        AnsiConsole.MarkupLine("  launch <distro> [[flags]]       Launch workstation desktop via high-performance RDP");
+        AnsiConsole.MarkupLine("      --fullscreen, -f          Launch in fullscreen Remote Desktop mode");
+        AnsiConsole.MarkupLine("      --multimon                Span Remote Desktop across all displays");
+        AnsiConsole.MarkupLine("      --width <w> --height <h>  Specify a custom viewport resolution");
+        AnsiConsole.MarkupLine("  provision <distro> [[flags]]    Non-interactively provision base distro and optional full desktop");
+        AnsiConsole.MarkupLine("      --with-desktop            Install full desktop environment and audio stack");
+        AnsiConsole.MarkupLine("      --no-cache, --fresh       Bypass local image & package cache to pull fresh from upstream");
+        AnsiConsole.MarkupLine("      --name <distro-name>      Specify a custom WSL distribution name");
+        AnsiConsole.MarkupLine("  teardown <distro> [[--force]]   Guarded unregister & deletion of a workstation instance");
         AnsiConsole.MarkupLine("  status                        Show status table of all workstations and GPU-PV state");
+        AnsiConsole.MarkupLine("  clean-cache                   Clear cached rootfs base images and package archives");
         AnsiConsole.MarkupLine("  clean-launchers               Remove orphaned .cmd and .rdp launcher files in working directory");
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine("[bold]Global Options:[/]");

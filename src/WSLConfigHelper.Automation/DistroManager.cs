@@ -69,9 +69,10 @@ public class DistroManager
         string baseDistro,
         string targetName,
         Action<string>? onOutputLine = null,
+        bool noCache = false,
         CancellationToken cancellationToken = default)
     {
-        return _installer.InstallDistroAsync(baseDistro, targetName, onOutputLine, cancellationToken);
+        return _installer.InstallDistroAsync(baseDistro, targetName, onOutputLine, noCache, cancellationToken);
     }
 
     public Task<WslExecutionResult> TerminateDistroAsync(string distroName, CancellationToken cancellationToken = default)
@@ -105,6 +106,14 @@ public class DistroManager
         }
 
         return result;
+    }
+
+    public void CleanCache()
+    {
+        if (_installer is LocalCachedDistroInstaller cachedInstaller)
+        {
+            cachedInstaller.CleanImageCache();
+        }
     }
 
     public Task<WslExecutionResult> ShutdownAsync(CancellationToken cancellationToken = default)

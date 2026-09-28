@@ -1,85 +1,122 @@
 using System.Diagnostics;
+using System.Text;
 
 namespace WSLConfigHelper.Automation;
 
+/// <summary>
+/// Manages remote display sessions, launcher generation, and Windows RDP integration for WSL2 desktop workstations.
+/// </summary>
 public class ViewportManager
 {
     private readonly IWslProcessRunner _runner;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ViewportManager"/> class.
+    /// </summary>
+    /// <param name="runner">The WSL process runner instance.</param>
     public ViewportManager(IWslProcessRunner? runner = null)
     {
         _runner = runner ?? new WslProcessRunner();
     }
 
-    public async Task<WslExecutionResult> SetupWslgViewportScriptAsync(
-        string distro,
-        int width = 1920,
-        int height = 1080,
-        CancellationToken cancellationToken = default)
+    /// <summary>
+    /// Generates a high-performance, tuned Windows Remote Desktop (.rdp) connection file
+    /// optimized for low latency, 32-bit true color, and local hypervisor loopback transport.
+    /// </summary>
+    /// <param name="filePath">Target filesystem path for the .rdp file.</param>
+    /// <param name="hostname">Host or loopback address (e.g. 127.0.0.1).</param>
+    /// <param name="port">Remote desktop TCP port.</param>
+    /// <param name="username">Login username.</param>
+    /// <param name="width">Desktop width in pixels (0 for auto / native).</param>
+    /// <param name="height">Desktop height in pixels (0 for auto / native).</param>
+    /// <param name="fullscreen">True for full screen display mode; false for windowed.</param>
+    /// <param name="multimon">True to span across multiple monitors.</param>
+    public async Task GenerateOptimizedRdpFileAsync(
+        string filePath,
+        string hostname = "127.0.0.1",
+        int port = 3390,
+        string username = "developer",
+        int width = 0,
+        int height = 0,
+        bool fullscreen = true,
+        bool multimon = false)
     {
-        var script = $"""
-            cat << 'EOF' > /usr/local/bin/start-plasma-wslg
-            #!/bin/bash
-            set -e
+        var sb = new StringBuilder();
+        sb.AppendLine($"full address:s:{hostname}:{port}");
+        sb.AppendLine($"username:s:{username}");
+        sb.AppendLine($"screen mode id:i:{(fullscreen ? 2 : 1)}");
+        sb.AppendLine($"use multimon:i:{(multimon ? 1 : 0)}");
 
-            # 1. Ensure user runtime directory exists
-            if [ -z "$XDG_RUNTIME_DIR" ] || [ ! -d "$XDG_RUNTIME_DIR" ]; then
-                export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-                if [ ! -d "$XDG_RUNTIME_DIR" ]; then
-                    export XDG_RUNTIME_DIR="/tmp/runtime-$(id -u)"
-                    mkdir -p "$XDG_RUNTIME_DIR"
-                    chmod 0700 "$XDG_RUNTIME_DIR"
-                fi
-            fi
+        if (width > 0 && height > 0)
+        {
+            sb.AppendLine($"desktopwidth:i:{width}");
+            sb.AppendLine($"desktopheight:i:{height}");
+        }
 
-            # 2. Check WSLg host display socket availability
-            if [ ! -S /mnt/wslg/runtime-dir/wayland-0 ] && [ ! -S /tmp/.X11-unix/X0 ] && [ ! -S "$XDG_RUNTIME_DIR/wayland-0" ]; then
-                echo "================================================================"
-                echo " Error: WSLg display socket not detected!"
-                echo " Your .wslconfig may have 'guiApplications=false'."
-                echo " To use WSLg nested window, enable 'guiApplications=true' in"
-                echo " %USERPROFILE%\\.wslconfig and run 'wsl --shutdown'."
-                echo " Alternatively, use Sunshine for headless virtual display."
-                echo "================================================================"
-                exit 1
-            fi
+        // Low-latency LAN loopback profile
+        sb.AppendLine("session bpp:i:32");
+        sb.AppendLine("compression:i:0");
+        sb.AppendLine("keyboardhook:i:2");
+        sb.AppendLine("audiomode:i:0");
+        sb.AppendLine("videoplaybackmode:i:1");
+        sb.AppendLine("connection type:i:7");
+        sb.AppendLine("networkautodetect:i:0");
+        sb.AppendLine("bandwidthautodetect:i:0");
+        sb.AppendLine("displayconnectionbar:i:1");
+        sb.AppendLine("enableworkspacereconnect:i:0");
+        sb.AppendLine("disable wallpaper:i:0");
+        sb.AppendLine("allow font smoothing:i:1");
+        sb.AppendLine("allow desktop composition:i:1");
+        sb.AppendLine("disable full window drag:i:0");
+        sb.AppendLine("disable menu anims:i:0");
+        sb.AppendLine("disable themes:i:0");
+        sb.AppendLine("disable cursor setting:i:0");
+        sb.AppendLine("bitmapcachepersistenable:i:1");
+        sb.AppendLine("audiocapturemode:i:0");
+        sb.AppendLine("redirectclipboard:i:1");
+        sb.AppendLine("prompt for credentials:i:0");
+        sb.AppendLine("smart sizing:i:1");
+        sb.AppendLine("dynamic resolution:i:1");
 
-            # 3. Hardware acceleration & rendering
-            export LIBGL_ALWAYS_SOFTWARE=0
-            export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-            export GALLIUM_DRIVER=d3d12
-
-            # Point host connection to WSLg wayland-0 and bind nested server to wayland-1
-            export WAYLAND_DISPLAY=wayland-0
-            export DISPLAY=:0
-
-            echo "Starting KDE Plasma inside WSLg nested Wayland window ({width}x{height})..."
-            if [ -S "$XDG_RUNTIME_DIR/bus" ]; then
-                export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-                exec kwin_wayland --wayland-display wayland-0 -s wayland-1 --width {width} --height {height} --exit-with-session plasma-workspace
-            else
-                exec dbus-run-session kwin_wayland --wayland-display wayland-0 -s wayland-1 --width {width} --height {height} --exit-with-session plasma-workspace
-            fi
-            EOF
-            chmod +x /usr/local/bin/start-plasma-wslg
-            """;
-
-        return await _runner.ExecuteInDistroAsync(distro, script, cancellationToken: cancellationToken);
+        await File.WriteAllTextAsync(filePath, sb.ToString());
     }
 
-    public Process LaunchWslgViewport(string distro, string user = "developer", string scriptPath = "/usr/local/bin/start-plasma-wslg")
+    /// <summary>
+    /// Synchronous wrapper for <see cref="GenerateOptimizedRdpFileAsync"/>.
+    /// </summary>
+    public void GenerateOptimizedRdpFile(
+        string filePath,
+        string hostname = "127.0.0.1",
+        int port = 3390,
+        string username = "developer",
+        int width = 0,
+        int height = 0,
+        bool fullscreen = true,
+        bool multimon = false)
+    {
+        GenerateOptimizedRdpFileAsync(filePath, hostname, port, username, width, height, fullscreen, multimon)
+            .GetAwaiter().GetResult();
+    }
+
+    /// <summary>
+    /// Launches the Windows Remote Desktop Connection client (mstsc.exe) targeting the specified endpoint or .rdp profile.
+    /// </summary>
+    /// <param name="target">The target .rdp file path or ip:port string.</param>
+    public Process LaunchWindowsMstsc(string target = "127.0.0.1:3390")
     {
         var psi = new ProcessStartInfo
         {
-            FileName = "wsl.exe",
-            Arguments = $"-d {distro} -u {user} -- {scriptPath}",
-            UseShellExecute = false,
-            CreateNoWindow = true
+            FileName = "mstsc.exe",
+            Arguments = target.EndsWith(".rdp", StringComparison.OrdinalIgnoreCase) ? target : $"/v:{target}",
+            UseShellExecute = true
         };
 
         return Process.Start(psi)!;
     }
 
+    /// <summary>
+    /// Configures Sunshine headless virtual streaming server inside the WSL2 distro.
+    /// </summary>
     public async Task<WslExecutionResult> SetupSunshineHeadlessScriptAsync(
         string distro,
         int width = 2560,
@@ -137,108 +174,5 @@ public class ViewportManager
             """;
 
         return await _runner.ExecuteInDistroAsync(distro, script, cancellationToken: cancellationToken);
-    }
-
-    public async Task<WslExecutionResult> SetupRdpViewportScriptAsync(
-        string distro,
-        int width = 1920,
-        int height = 1080,
-        int port = 3390,
-        CancellationToken cancellationToken = default)
-    {
-        var script = $"""
-            cat << 'EOF' > /usr/local/bin/start-plasma-rdp
-            #!/bin/bash
-            export XDG_RUNTIME_DIR="/run/user/$(id -u)"
-            export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
-
-            export LIBGL_ALWAYS_SOFTWARE=0
-            export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-            export GALLIUM_DRIVER=d3d12
-            export KWIN_WAYLAND_NO_PERMISSION_CHECKS=1
-
-            if [ ! -f "$HOME/krdp.crt" ] || [ ! -f "$HOME/krdp.key" ]; then
-                openssl req -x509 -newkey rsa:2048 -nodes -keyout "$HOME/krdp.key" -out "$HOME/krdp.crt" -days 365 -subj "/CN=Fedora-Desktop"
-            fi
-
-            rm -f "$XDG_RUNTIME_DIR/plasma-display"*
-
-            echo "Starting KDE Plasma virtual headless display ({width}x{height})..."
-            kwin_wayland --virtual --no-lockscreen --socket plasma-display --width {width} --height {height} --exit-with-session plasma-workspace &
-            KWIN_PID=$!
-            sleep 2
-
-            echo "Starting KDE native RDP server on port {port}..."
-            export WAYLAND_DISPLAY=plasma-display
-            export QT_QPA_PLATFORM=wayland
-            /usr/bin/krdpserver --port {port} --username developer --password developer --certificate "$HOME/krdp.crt" --certificate-key "$HOME/krdp.key" &
-            KRDP_PID=$!
-
-            echo "RDP server ready on port {port}!"
-            trap "kill -TERM $KWIN_PID $KRDP_PID 2>/dev/null" SIGINT SIGTERM EXIT
-            wait $KWIN_PID
-            EOF
-            chmod +x /usr/local/bin/start-plasma-rdp
-            """;
-
-        return await _runner.ExecuteInDistroAsync(distro, script, cancellationToken: cancellationToken);
-    }
-
-    public async Task<WslExecutionResult> EnableSystemdServiceAsync(
-        string distro,
-        string user = "developer",
-        CancellationToken cancellationToken = default)
-    {
-        var script = """
-            loginctl enable-linger developer 2>/dev/null || true
-            mkdir -p /home/developer/.config/systemd/user
-            cat << 'EOF' > /home/developer/.config/systemd/user/plasma-rdp.service
-            [Unit]
-            Description=KDE Plasma 6 Headless RDP Session
-            After=default.target pipewire.service
-            Wants=pipewire.service
-
-            [Service]
-            Type=simple
-            Environment=LIBGL_ALWAYS_SOFTWARE=0
-            Environment=MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-            Environment=GALLIUM_DRIVER=d3d12
-            ExecStart=/usr/local/bin/start-plasma-rdp
-            Restart=on-failure
-            RestartSec=3
-
-            [Install]
-            WantedBy=default.target
-            EOF
-            chown -R developer:developer /home/developer/.config/systemd
-            su - developer -c "systemctl --user daemon-reload && systemctl --user enable plasma-rdp.service && systemctl --user restart plasma-rdp.service"
-            """;
-
-        return await _runner.ExecuteInDistroAsync(distro, script, user: "root", cancellationToken: cancellationToken);
-    }
-
-    public Process LaunchRdpViewport(string distro, string user = "developer")
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "wsl.exe",
-            Arguments = $"-d {distro} -u {user} -- /usr/local/bin/start-plasma-rdp",
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        return Process.Start(psi)!;
-    }
-
-    public Process LaunchWindowsMstsc(string target = "127.0.0.1:3390")
-    {
-        var psi = new ProcessStartInfo
-        {
-            FileName = "mstsc.exe",
-            Arguments = target.EndsWith(".rdp", StringComparison.OrdinalIgnoreCase) ? target : $"/v:{target}",
-            UseShellExecute = true
-        };
-
-        return Process.Start(psi)!;
     }
 }

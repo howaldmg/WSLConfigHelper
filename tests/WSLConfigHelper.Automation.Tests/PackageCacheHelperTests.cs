@@ -58,14 +58,25 @@ public class PackageCacheHelperTests : IDisposable
     }
 
     [Fact]
-    public void BuildDnfInstallScript_GeneratesStagingAndSyncHooks()
+    public void BuildDnfInstallScript_GeneratesLocalRepoAndSyncHooks()
     {
         var script = _helper.BuildDnfInstallScript("fedora", new[] { "package-a", "package-b" }, "copr-command\n");
 
         Assert.Contains("copr-command", script);
-        Assert.Contains("/var/cache/wsl-pkg-staging", script);
-        Assert.Contains("dnf install -y /var/cache/wsl-pkg-staging/*.rpm package-a package-b", script);
+        Assert.Contains("/etc/yum.repos.d/wsl-local.repo", script);
+        Assert.Contains("cost=50", script);
+        Assert.Contains("dnf install -y package-a package-b", script);
         Assert.Contains("find /var/cache/libdnf5", script);
+        Assert.Contains("dnf clean packages -y", script);
+    }
+
+    [Fact]
+    public void BuildDnfInstallScript_NoCacheBypassesLocalRepo()
+    {
+        var script = _helper.BuildDnfInstallScript("fedora", new[] { "package-a" }, noCache: true);
+
+        Assert.Contains("--disablerepo=wsl-local", script);
+        Assert.Contains("dnf clean packages -y", script);
     }
 
     [Fact]

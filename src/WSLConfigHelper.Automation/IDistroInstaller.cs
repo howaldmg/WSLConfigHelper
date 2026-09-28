@@ -6,5 +6,6 @@ public interface IDistroInstaller
         string baseDistro,
         string targetName,
         Action<string>? onOutputLine = null,
+        bool noCache = false,
         CancellationToken cancellationToken = default);
 }

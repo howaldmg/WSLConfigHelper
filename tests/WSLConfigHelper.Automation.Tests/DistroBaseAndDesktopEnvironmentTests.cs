@@ -53,26 +53,29 @@ public class DistroBaseAndDesktopEnvironmentTests
         var aptPackages = kde.GetPackageList(PackageManagerType.Apt);
 
         Assert.Contains("@kde-desktop-environment", dnfPackages);
-        Assert.Contains("xorg-x11-server-Xephyr", dnfPackages);
         Assert.Contains("plasma-workspace-x11", dnfPackages);
         Assert.Contains("xrdp", dnfPackages);
+        Assert.Contains("xorgxrdp", dnfPackages);
         Assert.Contains("pipewire-module-xrdp", dnfPackages);
         Assert.Contains("pulseaudio-utils", dnfPackages);
+        Assert.Contains("gcc", dnfPackages);
         Assert.Contains("kde-standard", aptPackages);
-        Assert.Contains("xserver-xephyr", aptPackages);
         Assert.Contains("xrdp", aptPackages);
+        Assert.Contains("xorgxrdp", aptPackages);
+        Assert.Contains("gcc", aptPackages);
 
         var xfce = new XfceDesktopEnvironment();
         var xfceDnf = xfce.GetPackageList(PackageManagerType.Dnf);
         var xfceApt = xfce.GetPackageList(PackageManagerType.Apt);
 
         Assert.Contains("@xfce-desktop-environment", xfceDnf);
-        Assert.Contains("xorg-x11-server-Xephyr", xfceDnf);
         Assert.Contains("xrdp", xfceDnf);
+        Assert.Contains("xorgxrdp", xfceDnf);
         Assert.Contains("pipewire-module-xrdp", xfceDnf);
         Assert.Contains("pulseaudio-utils", xfceDnf);
         Assert.Contains("xfce4", xfceApt);
-        Assert.Contains("xserver-xephyr", xfceApt);
+        Assert.Contains("xrdp", xfceApt);
+        Assert.Contains("xorgxrdp", xfceApt);
     }
 
     [Fact]
@@ -83,7 +86,21 @@ public class DistroBaseAndDesktopEnvironmentTests
 
         await fedora.InstallPackagesAsync("Fedora-Desktop", new[] { "xrdp", "pipewire-module-xrdp" }, recorder);
         Assert.Contains("dnf copr enable -y infinality/pipewire-module-xrdp", recorder.LastBashCommand);
+        Assert.Contains("wsl-local.repo", recorder.LastBashCommand);
+        Assert.Contains("cost=50", recorder.LastBashCommand);
         Assert.Contains("dnf install -y xrdp pipewire-module-xrdp", recorder.LastBashCommand);
+        Assert.Contains("dnf clean packages", recorder.LastBashCommand);
+    }
+
+    [Fact]
+    public async Task FedoraDistroBaseDisablesLocalRepoWhenNoCacheRequested()
+    {
+        var recorder = new ViewportRunnerRecorder();
+        var fedora = new FedoraDistroBase();
+
+        await fedora.InstallPackagesAsync("Fedora-Desktop", new[] { "xrdp" }, recorder, noCache: true);
+        Assert.Contains("--disablerepo=wsl-local", recorder.LastBashCommand);
+        Assert.Contains("dnf clean packages", recorder.LastBashCommand);
     }
 
     [Fact]
@@ -99,6 +116,9 @@ public class DistroBaseAndDesktopEnvironmentTests
         Assert.Contains("port=3390", recorder.LastBashCommand);
         Assert.Contains("pipewire-module-xrdp", recorder.LastBashCommand);
         Assert.Contains("startplasma-x11", recorder.LastBashCommand);
+        Assert.Contains("crypt_level=none", recorder.LastBashCommand);
+        Assert.Contains("tcp_nodelay=true", recorder.LastBashCommand);
+        Assert.Contains("libfake_gpu.so", recorder.LastBashCommand);
         Assert.Contains("systemctl restart xrdp", recorder.LastBashCommand);
     }
 
@@ -114,45 +134,9 @@ public class DistroBaseAndDesktopEnvironmentTests
         Assert.Equal("Fedora-XFCE", recorder.LastDistro);
         Assert.Contains("port=3391", recorder.LastBashCommand);
         Assert.Contains("pipewire-module-xrdp", recorder.LastBashCommand);
+        Assert.Contains("crypt_level=none", recorder.LastBashCommand);
+        Assert.Contains("tcp_nodelay=true", recorder.LastBashCommand);
         Assert.Contains("exec dbus-run-session startxfce4", recorder.LastBashCommand);
         Assert.Contains("systemctl restart xrdp", recorder.LastBashCommand);
-    }
-
-    [Fact]
-    public async Task KdePlasmaDesktopEnvironmentConfiguresNativeWslgViewport()
-    {
-        var recorder = new ViewportRunnerRecorder();
-        var kde = new KdePlasmaDesktopEnvironment();
-        var options = new ViewportOptions(Width: 2560, Height: 1440, User: "developer");
-
-        var result = await kde.ConfigureNativeWslgViewportAsync("Fedora-Desktop", recorder, options);
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("Fedora-Desktop", recorder.LastDistro);
-        Assert.Equal("root", recorder.LastUser);
-        Assert.Contains("start-plasma-wslg", recorder.LastBashCommand);
-        Assert.Contains("xorg-x11-server-Xephyr", recorder.LastBashCommand);
-        Assert.Contains("Xephyr :1 -screen 2560x1440", recorder.LastBashCommand);
-        Assert.Contains("startplasma-x11", recorder.LastBashCommand);
-        Assert.Contains("chmod +x /usr/local/bin/start-plasma-wslg", recorder.LastBashCommand);
-    }
-
-    [Fact]
-    public async Task XfceDesktopEnvironmentConfiguresNativeWslgViewport()
-    {
-        var recorder = new ViewportRunnerRecorder();
-        var xfce = new XfceDesktopEnvironment();
-        var options = new ViewportOptions(Width: 1920, Height: 1080, User: "developer");
-
-        var result = await xfce.ConfigureNativeWslgViewportAsync("Fedora-XFCE", recorder, options);
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("Fedora-XFCE", recorder.LastDistro);
-        Assert.Equal("root", recorder.LastUser);
-        Assert.Contains("start-xfce-wslg", recorder.LastBashCommand);
-        Assert.Contains("Xephyr :1 -screen 1920x1080", recorder.LastBashCommand);
-        Assert.Contains("export DISPLAY=:1", recorder.LastBashCommand);
-        Assert.Contains("startxfce4", recorder.LastBashCommand);
-        Assert.Contains("chmod +x /usr/local/bin/start-xfce-wslg", recorder.LastBashCommand);
     }
 }

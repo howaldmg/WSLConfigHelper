@@ -13,6 +13,7 @@ public class StandardWslDistroInstaller : IDistroInstaller
         string baseDistro,
         string targetName,
         Action<string>? onOutputLine = null,
+        bool noCache = false,
         CancellationToken cancellationToken = default)
     {
         var args = $"--install {baseDistro} --name {targetName} --no-launch --web-download";

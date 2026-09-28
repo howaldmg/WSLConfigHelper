@@ -46,12 +46,13 @@ public class LocalCachedDistroInstaller : IDistroInstaller
         string baseDistro,
         string targetName,
         Action<string>? onOutputLine = null,
+        bool noCache = false,
         CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(CacheDirectory);
         var cachedImagePath = GetCachedImagePath(baseDistro);
 
-        if (File.Exists(cachedImagePath))
+        if (!noCache && File.Exists(cachedImagePath))
         {
             onOutputLine?.Invoke($"[Cache Hit] Using local base image: {cachedImagePath}");
 
@@ -62,8 +63,16 @@ public class LocalCachedDistroInstaller : IDistroInstaller
             return await _runner.ExecuteAsync(importArgs, onOutputLine: onOutputLine, cancellationToken: cancellationToken);
         }
 
-        onOutputLine?.Invoke($"[Cache Miss] Base image for '{baseDistro}' not found in cache. Downloading from upstream...");
-        var installResult = await _fallbackInstaller.InstallDistroAsync(baseDistro, targetName, onOutputLine, cancellationToken);
+        if (noCache)
+        {
+            onOutputLine?.Invoke($"[No Cache] Downloading fresh base image for '{baseDistro}' from upstream as '{targetName}'...");
+        }
+        else
+        {
+            onOutputLine?.Invoke($"[Cache Miss] Base image for '{baseDistro}' not found in cache. Downloading from upstream...");
+        }
+
+        var installResult = await _fallbackInstaller.InstallDistroAsync(baseDistro, targetName, onOutputLine, noCache, cancellationToken);
 
         if (installResult.Success)
         {
@@ -88,5 +97,17 @@ public class LocalCachedDistroInstaller : IDistroInstaller
         }
 
         return installResult;
+    }
+
+    public void CleanImageCache()
+    {
+        try
+        {
+            if (Directory.Exists(CacheDirectory))
+            {
+                Directory.Delete(CacheDirectory, recursive: true);
+            }
+        }
+        catch { }
     }
 }

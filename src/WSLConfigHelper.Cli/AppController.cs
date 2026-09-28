@@ -8,6 +8,9 @@ using WSLConfigHelper.Core.SystemInfo;
 
 namespace WSLConfigHelper.Cli;
 
+/// <summary>
+/// Top-level interactive application controller orchestrating .wslconfig management and desktop automation workflows.
+/// </summary>
 public class AppController
 {
     private readonly WslConfigFileService _fileService;
@@ -40,74 +43,101 @@ public class AppController
             ConsoleRenderer.RenderHeader(_hostMetrics, _fileService.ConfigFilePath, _hasUnsavedChanges, _fileService.BackupExists());
 
             var menu = new SelectionPrompt<string>()
-                .Title("[bold]Main Menu:[/] Choose an operation")
-                .PageSize(12)
+                .Title("[bold]Main Menu:[/] Select an operational module")
+                .PageSize(8)
                 .AddChoices(
-                    " 1. 📊 View Current Configuration & Hardware Alignment",
-                    " 2. 🩺 Run Guardrail Doctor (Diagnostics Audit)",
-                    " 3. ⚡ Apply Hardware-Tuned Preset",
-                    " 4. ⚙️  Edit [[wsl2]] Core Settings (Memory, vCPUs, Swap...)",
-                    " 5. 🧪 Edit [[experimental]] Settings (Mirrored Net, AutoReclaim...)",
-                    " 6. 🖥️  Desktop Experience (WSLg Native / RDP Viewports)",
-                    " 7. 💾 Save Changes to .wslconfig (Creates single .bak)",
-                    " 8. 🔄 Restore from .wslconfig.bak",
-                    " 9. 📄 View Raw INI Document",
-                    "10. 🚪 Exit"
+                    " 1. ⚙️  WSL2 Host Configuration (.wslconfig)",
+                    " 2. 🖥️  Linux Desktop Workstations (Remote Desktop / RDP)",
+                    " 3. 🚪 Exit"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
 
-            if (choice.Contains("1."))
+            if (choice.Contains(" 1."))
+            {
+                RunHostConfigWorkbench();
+            }
+            else if (choice.Contains(" 2."))
+            {
+                await _desktopAutomationView.ShowAsync();
+            }
+            else if (choice.Contains(" 3."))
+            {
+                if (ConfirmExit())
+                {
+                    break;
+                }
+            }
+        }
+    }
+
+    private void RunHostConfigWorkbench()
+    {
+        while (true)
+        {
+            ConsoleRenderer.RenderHeader(_hostMetrics, _fileService.ConfigFilePath, _hasUnsavedChanges, _fileService.BackupExists());
+
+            var menu = new SelectionPrompt<string>()
+                .Title("[bold]WSL2 Host Configuration (.wslconfig Workbench):[/] Choose an operation")
+                .PageSize(12)
+                .AddChoices(
+                    " 1. 📊 View Current Configuration & Hardware Alignment",
+                    " 2. 🩺 Run Guardrail Doctor (Diagnostics Audit)",
+                    " 3. ⚡ Apply Hardware-Tuned Preset (Balanced / Workstation / Light)",
+                    " 4. ⚙️  Edit [[wsl2]] Core Settings (Memory, vCPUs, Swap...)",
+                    " 5. 🧪 Edit [[experimental]] Settings (Mirrored Net, AutoReclaim...)",
+                    " 6. 💾 Save Changes to .wslconfig (Creates single .bak)",
+                    " 7. 🔄 Restore from .wslconfig.bak",
+                    " 8. 📄 View Raw INI Document",
+                    " 9. 🚪 ← Back to Main Menu"
+                );
+
+            var choice = AnsiConsole.Prompt(menu);
+
+            if (choice.Contains(" 1."))
             {
                 DashboardView.Show(_currentDoc, _hostMetrics, _guardrails);
             }
-            else if (choice.Contains("2."))
+            else if (choice.Contains(" 2."))
             {
                 DoctorView.Show(_currentDoc, _hostMetrics, _guardrails);
             }
-            else if (choice.Contains("3."))
+            else if (choice.Contains(" 3."))
             {
                 if (PresetView.Show(_currentDoc, _hostMetrics, _presets))
                 {
                     _hasUnsavedChanges = true;
                 }
             }
-            else if (choice.Contains("4."))
+            else if (choice.Contains(" 4."))
             {
                 if (SectionEditorView.Show(WslKnownSettings.SectionWsl2, _currentDoc, _hostMetrics, _guardrails))
                 {
                     _hasUnsavedChanges = true;
                 }
             }
-            else if (choice.Contains("5."))
+            else if (choice.Contains(" 5."))
             {
                 if (SectionEditorView.Show(WslKnownSettings.SectionExperimental, _currentDoc, _hostMetrics, _guardrails))
                 {
                     _hasUnsavedChanges = true;
                 }
             }
-            else if (choice.Contains("6."))
-            {
-                await _desktopAutomationView.ShowAsync();
-            }
-            else if (choice.Contains("7."))
+            else if (choice.Contains(" 6."))
             {
                 SaveChanges();
             }
-            else if (choice.Contains("8."))
+            else if (choice.Contains(" 7."))
             {
                 RestoreBackup();
             }
-            else if (choice.Contains("9."))
+            else if (choice.Contains(" 8."))
             {
                 ShowRawIni();
             }
-            else if (choice.Contains("10."))
+            else
             {
-                if (ConfirmExit())
-                {
-                    break;
-                }
+                break;
             }
         }
     }

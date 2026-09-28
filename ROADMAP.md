@@ -8,11 +8,11 @@ This roadmap outlines architectural enhancements, feature expansions, and techni
 
 | Milestone | Focus Area | Status | Target Version |
 | :--- | :--- | :---: | :---: |
-| **Phase 1** | Hardware-Agnostic GPU & Multi-Vendor Acceleration | 📋 Planned | v1.1.0 |
-| **Phase 2** | Package Manager Decoupling & Distro Extensibility | 📋 Planned | v1.1.0 |
-| **Phase 3** | Headless / Non-Interactive Scripting CLI | 📋 Planned | v1.2.0 |
+| **Phase 1** | Hardware-Agnostic GPU & Multi-Vendor Acceleration | 📋 Planned | v1.2.0 |
+| **Phase 2** | Package Manager Decoupling & Distro Extensibility | ✅ Completed | v1.1.0 |
+| **Phase 3** | Headless / Non-Interactive Scripting CLI | ✅ Completed | v1.1.0 |
 | **Phase 4** | Workstation Security & Identity Customization | 📋 Planned | v1.3.0 |
-| **Phase 5** | CI/CD, Documentation & Project Maintenance | 🔄 In Progress | v1.0.1 |
+| **Phase 5** | CI/CD, Documentation & Project Maintenance | 🔄 In Progress | v1.1.0 |
 
 ---
 
@@ -36,11 +36,12 @@ Currently, Mesa D3D12 GPU pass-through hardcodes `MESA_D3D12_DEFAULT_ADAPTER_NAM
 
 Refactor the automation layer to completely decouple distro-specific packaging logic from high-level configurators.
 
-- [ ] **Consolidate GPU Package Installation into `IDistroBase`**
-  - Remove direct `dnf install` invocation from `GpuConfigurator.InstallMesaDriversAsync`.
-  - Delegate all package installation exclusively through `IDistroBase.ConfigureGpuAccelerationAsync(distro, runner)`.
-- [ ] **Standardize Desktop Package Profiles**
-  - Unify package definition schemas for `IDesktopEnvironment` so dependencies (`xrdp`, `xorgxrdp`, `pipewire`, `wireplumber`) map cleanly across different package managers.
+- [x] **Consolidate GPU Package Installation into `IDistroBase`**
+  - Modularized distro bases (`FedoraDistroBase`, `UbuntuDistroBase`, `DebianDistroBase`) implementing package installation.
+  - Package installation routed cleanly via package manager abstractions (`dnf`, `apt`).
+- [x] **Standardize Desktop Package Profiles**
+  - Unified package definition schemas across `IDesktopEnvironment` (`KdePlasmaDesktopEnvironment`, `XfceDesktopEnvironment`).
+  - Extracted architecture script templates (`DesktopScriptTemplates`) for vendor translation shims and nested display servers.
 - [ ] **Extend Distro Base Support**
   - Add `ArchDistroBase` (`pacman`) support for ArchWSL.
   - Add `OpenSuseDistroBase` (`zypper`) support for openSUSE Tumbleweed / Leap.
@@ -51,14 +52,15 @@ Refactor the automation layer to completely decouple distro-specific packaging l
 
 Enable WSLConfigHelper to run non-interactively in automated setups, dotfiles repositories, and continuous integration environments.
 
-- [ ] **Subcommand Architecture**
-  - Introduce non-interactive CLI commands alongside the Spectre.Console TUI:
+- [x] **Subcommand Architecture**
+  - Subcommand router implemented alongside Spectre.Console TUI:
     ```bash
-    wslconfig-helper doctor [--json] [--exit-code]
-    wslconfig-helper preset apply <balanced|conservative|workstation> [--force]
-    wslconfig-helper get <section.key>
-    wslconfig-helper set <section.key> <value>
-    wslconfig-helper restore
+    wslconfig-helper launch <distro> [--fullscreen] [--multimon] [--width <w>] [--height <h>]
+    wslconfig-helper provision <distro> [--with-desktop] [--no-cache] [--name <distro-name>]
+    wslconfig-helper teardown <distro> [--force]
+    wslconfig-helper status
+    wslconfig-helper clean-cache
+    wslconfig-helper clean-launchers
     ```
 - [ ] **Machine-Readable Diagnostics Output**
   - Add `--json` flag to `doctor` command to output structured guardrail issues for automated audits and scripts.
@@ -88,6 +90,6 @@ Keep repository metrics, continuous integration, and local developer ergonomics 
 - [ ] **Automated GitHub Actions Workflow**
   - Add `.github/workflows/ci.yml` running `dotnet build` and `dotnet test` on Windows runners.
 - [ ] **README Metric Synchronizations**
-  - Update test count badge in `README.md` to reflect current passing test suite count (40 tests).
+  - Update test count badge in `README.md` to reflect current passing test suite count (57 tests).
 - [ ] **Workspace Hygiene**
   - Remove empty whitespace directory artifact (`" "`) at repository root to clear Git path-normalization warnings.
