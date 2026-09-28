@@ -145,6 +145,7 @@ public class FedoraDistroBase : IDistroBase
         IEnumerable<string> packages,
         IWslProcessRunner runner,
         Action<string>? onProgress = null,
+        bool noCache = false,
         CancellationToken ct = default)
     {
         var packageList = packages.ToList();
@@ -152,7 +153,7 @@ public class FedoraDistroBase : IDistroBase
             ? "dnf copr enable -y infinality/pipewire-module-xrdp 2>/dev/null || true\n"
             : "";
 
-        var script = _cacheHelper.BuildDnfInstallScript(Id, packageList, coprPrefix);
+        var script = _cacheHelper.BuildDnfInstallScript(Id, packageList, coprPrefix, noCache);
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", onOutputLine: onProgress, cancellationToken: ct);
     }
 }

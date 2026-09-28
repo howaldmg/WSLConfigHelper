@@ -30,6 +30,7 @@ bld/
 *.local
 .wslconfig.bak
 .wslconfig.tmp.*
+GEMINI.md
 
 ## Generated Launchers and Viewport Artifacts
 *.cmd

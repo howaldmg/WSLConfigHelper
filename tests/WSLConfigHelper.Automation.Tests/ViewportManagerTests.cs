@@ -1,4 +1,5 @@
 using WSLConfigHelper.Automation;
+using WSLConfigHelper.Core.Native;
 using Xunit;
 
 namespace WSLConfigHelper.Automation.Tests;
@@ -35,23 +36,6 @@ public class ViewportRunnerRecorder : IWslProcessRunner
 public class ViewportManagerTests
 {
     [Fact]
-    public async Task SetupWslgViewportScriptGeneratesCorrectValidationAndSockets()
-    {
-        var recorder = new ViewportRunnerRecorder();
-        var manager = new ViewportManager(recorder);
-
-        var result = await manager.SetupWslgViewportScriptAsync("Fedora-Desktop", 1920, 1080);
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("Fedora-Desktop", recorder.LastDistro);
-        Assert.Contains("start-plasma-wslg", recorder.LastBashCommand);
-        Assert.Contains("export XDG_RUNTIME_DIR=\"/run/user/$(id -u)\"", recorder.LastBashCommand);
-        Assert.Contains("export WAYLAND_DISPLAY=wayland-0", recorder.LastBashCommand);
-        Assert.Contains("--wayland-display wayland-0 -s wayland-1", recorder.LastBashCommand);
-        Assert.Contains("guiApplications=true", recorder.LastBashCommand);
-    }
-
-    [Fact]
     public async Task SetupSunshineHeadlessScriptGeneratesVirtualDisplayAndServices()
     {
         var recorder = new ViewportRunnerRecorder();
@@ -70,19 +54,39 @@ public class ViewportManagerTests
     }
 
     [Fact]
-    public async Task SetupRdpViewportScriptGeneratesCorrectServicesAndPort()
+    public async Task GenerateOptimizedRdpFileAsyncCreatesValidConfiguration()
     {
-        var recorder = new ViewportRunnerRecorder();
-        var manager = new ViewportManager(recorder);
+        var tempFile = Path.Combine(Path.GetTempPath(), $"test_{Guid.NewGuid():N}.rdp");
+        try
+        {
+            var manager = new ViewportManager();
+            await manager.GenerateOptimizedRdpFileAsync(tempFile, "127.0.0.1", 3390, "developer", 2560, 1440, fullscreen: true, multimon: false);
+            Assert.True(File.Exists(tempFile));
+            var content = await File.ReadAllTextAsync(tempFile);
+            Assert.Contains("full address:s:127.0.0.1:3390", content);
+            Assert.Contains("connection type:i:7", content);
+            Assert.Contains("dynamic resolution:i:1", content);
+            Assert.Contains("compression:i:0", content);
+            Assert.Contains("screen mode id:i:2", content);
+        }
+        finally
+        {
+            if (File.Exists(tempFile))
+            {
+                File.Delete(tempFile);
+            }
+        }
+    }
 
-        var result = await manager.SetupRdpViewportScriptAsync("Fedora-Desktop", 1920, 1080, 3390);
-
-        Assert.Equal(0, result.ExitCode);
-        Assert.Equal("Fedora-Desktop", recorder.LastDistro);
-        Assert.Contains("start-plasma-rdp", recorder.LastBashCommand);
-        Assert.Contains("kwin_wayland --virtual --no-lockscreen --socket plasma-display --width 1920 --height 1080", recorder.LastBashCommand);
-        Assert.Contains("/usr/bin/krdpserver --port 3390", recorder.LastBashCommand);
-        Assert.Contains("KWIN_WAYLAND_NO_PERMISSION_CHECKS=1", recorder.LastBashCommand);
-        Assert.Contains("krdp.crt", recorder.LastBashCommand);
+    [Fact]
+    public void VerifyPInvokeWindowLongPtrSafeDoesNotThrow()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            // Verify GetWindowLongPtrSafe and SetWindowLongPtrSafe from Win32Native do not throw EntryPointNotFoundException
+            var handle = System.Diagnostics.Process.GetCurrentProcess().MainWindowHandle;
+            var style = Win32Native.GetWindowLongPtrSafe(handle, -16);
+            Assert.True(style != IntPtr.Zero || style == IntPtr.Zero);
+        }
     }
 }

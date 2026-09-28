@@ -5,9 +5,14 @@ using WSLConfigHelper.Automation.DesktopEnvironments;
 using WSLConfigHelper.Automation.DistroBases;
 using WSLConfigHelper.Automation.Workstations;
 using WSLConfigHelper.Core.Storage;
+using WSLConfigHelper.Core.SystemInfo;
 
 namespace WSLConfigHelper.Cli.UI;
 
+/// <summary>
+/// Terminal UI view presenting the interactive provisioning, configuration, and launch workflow
+/// for WSL2 desktop workstations and multi-monitor viewports.
+/// </summary>
 public class DesktopAutomationView
 {
     private readonly DistroManager _distroManager;
@@ -16,9 +21,10 @@ public class DesktopAutomationView
     private readonly WslConfigFileService _configFileService;
     private readonly IWslProcessRunner _runner;
     private readonly WorkstationRegistry _registry;
+    private readonly IDisplayProber _displayProber;
     private WorkstationProfile _activeProfile;
 
-    public DesktopAutomationView()
+    public DesktopAutomationView(IDisplayProber? displayProber = null)
     {
         _runner = new WslProcessRunner();
         _distroManager = new DistroManager(_runner);
@@ -26,6 +32,7 @@ public class DesktopAutomationView
         _viewportManager = new ViewportManager(_runner);
         _configFileService = new WslConfigFileService();
         _registry = new WorkstationRegistry();
+        _displayProber = displayProber ?? new DisplayProber();
         _activeProfile = _registry.GetProfile("fedora-kde")!;
     }
 
@@ -60,19 +67,16 @@ public class DesktopAutomationView
 
             var menu = new SelectionPrompt<string>()
                 .Title("[bold]Automation Operations & Phased Checkpoints:[/]")
-                .PageSize(12)
+                .PageSize(10)
                 .AddChoices(
                     " 1. 🔍 Run Diagnostics & Hardware Audit (Checkpoints 1 & 2)",
                     $" 2. 📦 Phase 1: Provision {_activeProfile.DistroName} & GPU-PV (Mesa D3D12)",
                     $" 3. 🎨 Phase 2: Install {_activeProfile.DesktopEnvironment.DisplayName} & Audio",
-                    $" 4. 🚀 Phase 3: Launch Native Framerate Desktop (WSLg Viewport - Monitor Hz)",
-                    $" 5. 🖥️  Phase 3 (Fallback): Launch Desktop via RDP (Port {_activeProfile.RdpPort})",
-                    $" 6. 🪟 Phase 4: Launch Native {_activeProfile.DesktopEnvironment.DisplayName} Apps in WSLg",
-                    " 7. 🔄 Switch / Create Workstation Profile",
-                    $" 8. 🛑 Stop / Terminate {_activeProfile.DistroName}",
-                    $" 9. 🗑️  Tear Down / Unregister {_activeProfile.DistroName} (Reset)",
-                    "10. ☀️ Phase 5: Sunshine Streaming Setup (Architecture Note)",
-                    "11. 🚪 ← Back to Main Menu"
+                    $" 4. 🚀 Phase 3: Launch Desktop Workstation (RDP - Port {_activeProfile.RdpPort})",
+                    " 5. 🔄 Switch / Create Workstation Profile",
+                    $" 6. 🛑 Stop / Terminate {_activeProfile.DistroName}",
+                    $" 7. 🗑️  Tear Down / Unregister {_activeProfile.DistroName} (Reset)",
+                    " 8. 🚪 ← Back to Main Menu"
                 );
 
             var choice = AnsiConsole.Prompt(menu);
@@ -91,31 +95,19 @@ public class DesktopAutomationView
             }
             else if (choice.Contains(" 4."))
             {
-                await RunPhase3WslgNativeAsync(distroExists);
+                await RunPhase3Async(distroExists);
             }
             else if (choice.Contains(" 5."))
             {
-                await RunPhase3RdpAsync(distroExists);
+                await SwitchOrCreateProfileAsync();
             }
             else if (choice.Contains(" 6."))
             {
-                await RunPhase4WslgAppsAsync(distroExists);
+                await StopWorkstationAsync();
             }
             else if (choice.Contains(" 7."))
             {
-                await SwitchOrCreateProfileAsync();
-            }
-            else if (choice.Contains(" 8."))
-            {
-                await StopWorkstationAsync();
-            }
-            else if (choice.Contains(" 9."))
-            {
                 await TeardownWorkstationAsync();
-            }
-            else if (choice.Contains("10."))
-            {
-                await RunPhase5SunshineAsync(distroExists);
             }
             else
             {
@@ -195,10 +187,13 @@ public class DesktopAutomationView
 
         if (!distroExists)
         {
-            if (!AnsiConsole.Confirm($"Download and provision fresh WSL instance '[bold]{_activeProfile.DistroName}[/]' from {_activeProfile.DistroBase.DefaultWslImage}?", defaultValue: true))
+            if (!AnsiConsole.Confirm($"Download and provision WSL instance '[bold]{_activeProfile.DistroName}[/]' from {_activeProfile.DistroBase.DefaultWslImage}?", defaultValue: true))
             {
                 return;
             }
+
+            bool useCache = AnsiConsole.Confirm("Use local cached base image & packages (faster)?", defaultValue: true);
+            bool noCache = !useCache;
 
             AnsiConsole.MarkupLine("[cyan]Starting download and installation via WSL... (this may take a few minutes)[/]");
             var installResult = await AnsiConsole.Status()
@@ -208,7 +203,7 @@ public class DesktopAutomationView
                     return await _distroManager.InstallDistroAsync(_activeProfile.DistroBase.DefaultWslImage, _activeProfile.DistroName, line =>
                     {
                         AnsiConsole.MarkupLine($"[grey]{Markup.Escape(line)}[/]");
-                    });
+                    }, noCache: noCache);
                 });
 
             if (!installResult.Success)
@@ -278,6 +273,9 @@ public class DesktopAutomationView
             return;
         }
 
+        bool usePackageCache = AnsiConsole.Confirm("Use local package cache repo (faster)?", defaultValue: true);
+        bool noCache = !usePackageCache;
+
         AnsiConsole.MarkupLine("[cyan]Configuring unprivileged 'developer' user with passwordless sudo & lingering...[/]");
         await _activeProfile.DistroBase.EnsureUserAsync(_activeProfile.DistroName, "developer", _runner);
         AnsiConsole.MarkupLine("[green]✓ User 'developer' configured.[/]");
@@ -297,7 +295,7 @@ public class DesktopAutomationView
                     {
                         AnsiConsole.MarkupLine($"[dim]{Markup.Escape(line)}[/]");
                     }
-                });
+                }, noCache: noCache);
             });
 
         AnsiConsole.WriteLine();
@@ -318,10 +316,10 @@ public class DesktopAutomationView
         ConsoleRenderer.PressEnterToContinue();
     }
 
-    private async Task RunPhase3WslgNativeAsync(bool distroExists)
+    private async Task RunPhase3Async(bool distroExists)
     {
         AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule($"[bold cyan]Phase 3: Launch Native Framerate Desktop ({_activeProfile.DesktopEnvironment.DisplayName} WSLg Viewport)[/]") { Justification = Justify.Left });
+        AnsiConsole.Write(new Rule($"[bold cyan]Phase 3: Launch Hardware-Accelerated Desktop ({_activeProfile.DesktopEnvironment.DisplayName})[/]") { Justification = Justify.Left });
 
         if (!distroExists)
         {
@@ -330,165 +328,120 @@ public class DesktopAutomationView
             return;
         }
 
-        AnsiConsole.MarkupLine("[grey]Deploys a native-framerate, direct GPU-PV nested desktop window running at your host monitor's refresh rate (144Hz/240Hz+).[/]");
-        AnsiConsole.MarkupLine("[grey]Bypasses RDP network streaming and Sunshine encoding with zero compression artifacts.[/]\n");
+        int port = _activeProfile.RdpPort;
+        AnsiConsole.MarkupLine("[grey]Deploys a low-latency, hardware-accelerated remote desktop session via RDP (mstsc.exe).[/]");
+        AnsiConsole.MarkupLine("[grey]Hardware cursor prediction provides zero mouse lag with full DirectX 12 GPU-PV passthrough.[/]\n");
 
-        int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
-        int height = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Height (pixels):").DefaultValue(1080));
+        // 1. Detect connected Windows displays
+        var displays = _displayProber.GetConnectedDisplays();
+        var primaryDisp = displays.FirstOrDefault(d => d.IsPrimary) ?? displays.FirstOrDefault() ?? new DisplayInfo(1, "DISPLAY1", 1920, 1080, 0, 0, 1920, 1040, 0, 0, true);
 
-        AnsiConsole.MarkupLine("[cyan]Configuring native WSLg viewport script...[/]");
-        var options = new ViewportOptions(Width: width, Height: height, User: "developer");
-        var result = await _activeProfile.DesktopEnvironment.ConfigureNativeWslgViewportAsync(_activeProfile.DistroName, _runner, options);
+        var choices = new List<string>
+        {
+            $"📺 Fullscreen (Primary Display {primaryDisp.DisplayNumber}: {primaryDisp.Width}x{primaryDisp.Height})",
+            "🖥️  Multi-Monitor Fullscreen (Span across all displays)",
+            "🪟 Dynamic Windowed (Auto-resizes with window)",
+            "⚙️  Custom Resolution"
+        };
+
+        var modeChoice = AnsiConsole.Prompt(
+            new SelectionPrompt<string>()
+                .Title("[bold]Select Remote Desktop Display Mode:[/]")
+                .PageSize(8)
+                .AddChoices(choices)
+        );
+
+        int width = 0;
+        int height = 0;
+        bool fullscreen = true;
+        bool multimon = false;
+
+        if (modeChoice.StartsWith("📺"))
+        {
+            width = primaryDisp.Width;
+            height = primaryDisp.Height;
+            fullscreen = true;
+            multimon = false;
+        }
+        else if (modeChoice.StartsWith("🖥️"))
+        {
+            fullscreen = true;
+            multimon = true;
+        }
+        else if (modeChoice.StartsWith("🪟"))
+        {
+            fullscreen = false;
+            multimon = false;
+        }
+        else
+        {
+            width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
+            height = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Height (pixels):").DefaultValue(1080));
+            fullscreen = false;
+        }
+
+        AnsiConsole.MarkupLine("[cyan]Configuring XRDP performance tuning and user session inside distro...[/]");
+        var options = new ViewportOptions(Width: width > 0 ? width : 1920, Height: height > 0 ? height : 1080, Port: port, User: "developer");
+        var result = await _activeProfile.DesktopEnvironment.ConfigureViewportServiceAsync(_activeProfile.DistroName, _runner, options);
 
         if (!result.Success)
         {
-            AnsiConsole.MarkupLine($"[red bold]Failed to configure script:[/] {Markup.Escape(result.StandardError)}");
+            AnsiConsole.MarkupLine($"[red bold]Failed to configure remote desktop:[/] {Markup.Escape(result.StandardError)}");
             ConsoleRenderer.PressEnterToContinue();
             return;
         }
 
-        AnsiConsole.MarkupLine($"[green]✓ Native viewport configured at {_activeProfile.DesktopEnvironment.NativeWslgScriptPath}![/]");
+        AnsiConsole.MarkupLine($"[green]✓ Remote desktop service active on port {port}![/]");
 
-        // Generate Windows .cmd launcher
-        await GenerateWindowsWslgLauncherAsync(_activeProfile.DistroName, _activeProfile.DesktopEnvironment.NativeWslgScriptPath);
+        // Generate optimized Windows .rdp profile and .cmd launcher
+        string rdpFile = $"{_activeProfile.DistroName}.rdp";
+        await _viewportManager.GenerateOptimizedRdpFileAsync(
+            rdpFile,
+            hostname: "127.0.0.1",
+            port: port,
+            username: "developer",
+            width: width,
+            height: height,
+            fullscreen: fullscreen,
+            multimon: multimon);
 
-        string backendDesc = _activeProfile.DesktopEnvironment.Id == "kde-plasma"
-            ? "Nested KWin Wayland (wayland-0)"
-            : "Nested Xephyr (X11 / D3D12)";
+        var cmdContent = $"""
+            @echo off
+            echo Waking up {_activeProfile.DistroName}...
+            wsl -d {_activeProfile.DistroName} -u developer -- true
+            echo Connecting to {_activeProfile.DesktopEnvironment.DisplayName} on port {port}...
+            start mstsc {rdpFile}
+            """;
+        await File.WriteAllTextAsync($"connect-{_activeProfile.DistroName.ToLowerInvariant()}.cmd", cmdContent);
 
         var infoPanel = new Panel(new Markup(
-            "[bold white]Native Framerate WSLg Viewport Details:[/]\n\n" +
-            $"• Compositor / Backend: [bold green]{backendDesc}[/]\n" +
-            $"• Resolution:           [bold cyan]{width}x{height}[/]\n" +
-            "• Refresh Rate:         [bold green]Native Host Monitor (Uncapped / VSync)[/]\n" +
-            "• Rendering:            [bold cyan]Mesa D3D12 via /dev/dxg (DirectX 12 GPU-PV)[/]\n" +
-            "• Latency:              [bold green]Zero-Network Direct IPC (Shared Surfaces)[/]\n\n" +
-            $"[grey]Generated launcher in current directory:[/] [cyan]launch-{_activeProfile.DistroName.ToLowerInvariant()}-wslg.cmd[/]"
+            "[bold white]Remote Desktop Connection Profile:[/]\n\n" +
+            $"• Address:         [bold green]127.0.0.1:{port}[/]\n" +
+            "• Mode:            [bold cyan]" + (multimon ? "Multi-Monitor Fullscreen" : (fullscreen ? $"Fullscreen ({width}x{height})" : "Dynamic Windowed")) + "[/]\n" +
+            "• Acceleration:    [bold green]DirectX 12 GPU-PV (/dev/dxg, Mesa D3D12)[/]\n" +
+            "• Input Latency:   [bold green]Zero Client-Side Mouse Cursor Prediction[/]\n" +
+            "• Audio:           [bold cyan]PipeWire XRDP Virtual Channel Redirection[/]\n" +
+            "• Credentials:     [bold cyan]developer / developer[/]\n\n" +
+            $"[grey]Generated launchers:[/] [cyan]{rdpFile}[/], [cyan]connect-{_activeProfile.DistroName.ToLowerInvariant()}.cmd[/]"
         ))
         {
             Border = BoxBorder.Rounded,
-            Header = new PanelHeader($" {_activeProfile.DesktopEnvironment.DisplayName} Native Viewport ")
+            Header = new PanelHeader($" {_activeProfile.DesktopEnvironment.DisplayName} Workstation ")
         };
         AnsiConsole.Write(infoPanel);
         AnsiConsole.WriteLine();
 
-        if (AnsiConsole.Confirm($"Launch {_activeProfile.DesktopEnvironment.DisplayName} native desktop window now?", defaultValue: true))
-        {
-            AnsiConsole.MarkupLine("[cyan]Launching native desktop window via WSLg...[/]");
-            _viewportManager.LaunchWslgViewport(_activeProfile.DistroName, "developer", _activeProfile.DesktopEnvironment.NativeWslgScriptPath);
-            AnsiConsole.MarkupLine("[green]✓ Window launched! Look for the desktop window on your Windows desktop.[/]");
-        }
-
-        ConsoleRenderer.PressEnterToContinue();
-    }
-
-    private async Task GenerateWindowsWslgLauncherAsync(string distroName, string scriptPath)
-    {
-        try
-        {
-            var cmdContent = $"""
-                @echo off
-                echo Launching {distroName} desktop at native monitor refresh rate via WSLg...
-                wsl -d {distroName} -u developer -- {scriptPath}
-                """;
-
-            await File.WriteAllTextAsync($"launch-{distroName.ToLowerInvariant()}-wslg.cmd", cmdContent);
-        }
-        catch
-        {
-            // Best effort convenience generation
-        }
-    }
-
-    private async Task RunPhase3RdpAsync(bool distroExists)
-    {
-        AnsiConsole.Clear();
-        AnsiConsole.Write(new Rule($"[bold cyan]Phase 3: Launch Full Desktop ({_activeProfile.DesktopEnvironment.DisplayName} RDP Viewport)[/]") { Justification = Justify.Left });
-
-        if (!distroExists)
-        {
-            AnsiConsole.MarkupLine($"[yellow]'{_activeProfile.DistroName}' is not yet provisioned.[/] Complete Phase 1 and Phase 2 first.");
-            ConsoleRenderer.PressEnterToContinue();
-            return;
-        }
-
-        int defaultPort = _activeProfile.RdpPort;
-        AnsiConsole.MarkupLine($"[grey]Deploys a virtual 60fps {_activeProfile.DesktopEnvironment.DisplayName} desktop exposed via {_activeProfile.DesktopEnvironment.Protocol} on port {defaultPort}.[/]\n");
-
-        int width = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Width (pixels):").DefaultValue(1920));
-        int height = AnsiConsole.Prompt(new TextPrompt<int>("Viewport Height (pixels):").DefaultValue(1080));
-        int port = AnsiConsole.Prompt(new TextPrompt<int>("RDP Port:").DefaultValue(defaultPort));
-
-        AnsiConsole.MarkupLine("[cyan]Configuring viewport service and security keys...[/]");
-        var options = new ViewportOptions(Width: width, Height: height, Port: port, User: "developer");
-        await _activeProfile.DesktopEnvironment.ConfigureViewportServiceAsync(_activeProfile.DistroName, _runner, options);
-        AnsiConsole.MarkupLine($"[green]✓ Viewport service configured for {_activeProfile.DesktopEnvironment.DisplayName} on port {port}![/]");
-
-        // Generate Windows .rdp file and .cmd launcher
-        await GenerateWindowsLaunchersAsync(_activeProfile.DistroName, port, width, height);
-
-        var infoPanel = new Panel(new Markup(
-            "[bold white]Remote Desktop Connection Info:[/]\n\n" +
-            $"• Address:  [bold green]127.0.0.1:{port}[/]\n" +
-            "• Username: [bold cyan]developer[/]\n" +
-            "• Password: [bold cyan]developer[/]\n\n" +
-            $"[grey]Generated launchers in current directory:[/] [cyan]{_activeProfile.DistroName}.rdp[/], [cyan]connect-{_activeProfile.DistroName.ToLowerInvariant()}.cmd[/]\n" +
-            "[grey]Hardware acceleration is active via Mesa D3D12 (RTX 4080).[/]"
-        ))
-        {
-            Border = BoxBorder.Rounded,
-            Header = new PanelHeader($" {_activeProfile.DesktopEnvironment.DisplayName} RDP Viewport ")
-        };
-        AnsiConsole.Write(infoPanel);
-        AnsiConsole.WriteLine();
-
-        if (AnsiConsole.Confirm($"Open Windows Remote Desktop (mstsc) to 127.0.0.1:{port} now?", defaultValue: true))
+        if (AnsiConsole.Confirm($"Open Windows Remote Desktop (mstsc) to {_activeProfile.DesktopEnvironment.DisplayName} now?", defaultValue: true))
         {
             AnsiConsole.MarkupLine("[cyan]Opening Windows Remote Desktop Connection (mstsc.exe)...[/]");
-            _viewportManager.LaunchWindowsMstsc($"{_activeProfile.DistroName}.rdp");
-            AnsiConsole.MarkupLine("[green]✓ Client launched! Enter 'developer' / 'developer' when prompted.[/]");
+            _viewportManager.LaunchWindowsMstsc(rdpFile);
+            AnsiConsole.MarkupLine("[green]✓ Remote Desktop launched! Enter 'developer' / 'developer' when prompted.[/]");
         }
 
         ConsoleRenderer.PressEnterToContinue();
     }
 
-    private async Task GenerateWindowsLaunchersAsync(string distroName, int port, int width, int height)
-    {
-        try
-        {
-            var rdpContent = $"""
-                full address:s:127.0.0.1:{port}
-                username:s:developer
-                prompt for credentials:i:1
-                desktopwidth:i:{width}
-                desktopheight:i:{height}
-                session bpp:i:32
-                audiomode:i:0
-                smart sizing:i:1
-                screen mode id:i:2
-                use multimon:i:0
-                connection type:i:7
-                networkautodetect:i:1
-                bandwidthautodetect:i:1
-                """;
 
-            await File.WriteAllTextAsync($"{distroName}.rdp", rdpContent);
-
-            var cmdContent = $"""
-                @echo off
-                echo Waking up {distroName}...
-                wsl -d {distroName} -u developer -- true
-                echo Connecting to Remote Desktop on port {port}...
-                start mstsc {distroName}.rdp
-                """;
-
-            await File.WriteAllTextAsync($"connect-{distroName.ToLowerInvariant()}.cmd", cmdContent);
-        }
-        catch
-        {
-            // Best effort convenience generation
-        }
-    }
 
     private async Task RunPhase4WslgAppsAsync(bool distroExists)
     {

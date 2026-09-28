@@ -1,5 +1,14 @@
 namespace WSLConfigHelper.Automation;
 
+/// <summary>
+/// Diagnostic report summarizing DirectX 12 GPU paravirtualization (GPU-PV) status inside a WSL2 instance.
+/// </summary>
+/// <param name="DxgDeviceFound">True if /dev/dxg device character node exists.</param>
+/// <param name="WslLibMounted">True if /usr/lib/wsl/lib host driver mount exists.</param>
+/// <param name="DirectRenderingEnabled">True if OpenGL direct rendering is operational.</param>
+/// <param name="OpenGLRenderer">Hardware adapter name reported by Mesa/GLX.</param>
+/// <param name="OpenGLVersion">OpenGL version reported by Mesa.</param>
+/// <param name="RawGlxInfoOutput">Raw output from the glxinfo diagnostic run.</param>
 public record GpuDiagnosticReport(
     bool DxgDeviceFound,
     bool WslLibMounted,
@@ -9,82 +18,25 @@ public record GpuDiagnosticReport(
     string RawGlxInfoOutput
 );
 
+/// <summary>
+/// Probes and validates DirectX 12 hardware acceleration inside WSL2 Linux distributions.
+/// </summary>
 public class GpuConfigurator
 {
     private readonly IWslProcessRunner _runner;
 
+    /// <summary>
+    /// Initializes a new instance of the <see cref="GpuConfigurator"/> class.
+    /// </summary>
+    /// <param name="runner">The WSL process runner instance.</param>
     public GpuConfigurator(IWslProcessRunner? runner = null)
     {
         _runner = runner ?? new WslProcessRunner();
     }
 
-    public async Task<bool> CheckDxgAvailableAsync(string distro, CancellationToken cancellationToken = default)
-    {
-        var result = await _runner.ExecuteInDistroAsync(distro, "[ -c /dev/dxg ] && echo 'OK'", cancellationToken: cancellationToken);
-        return result.StandardOutput.Contains("OK");
-    }
-
-    public async Task<WslExecutionResult> ConfigureWslConfAsync(string distro, string? defaultUser = null, CancellationToken cancellationToken = default)
-    {
-        var wslConfContent = """
-            [boot]
-            systemd=true
-
-            [automount]
-            enabled=true
-            mountFsTab=true
-
-            [interop]
-            enabled=true
-            appendWindowsPath=true
-            """;
-
-        if (!string.IsNullOrWhiteSpace(defaultUser))
-        {
-            wslConfContent += $"\n\n[user]\ndefault={defaultUser}\n";
-        }
-
-        var bash = $"""
-            cat << 'EOF' > /etc/wsl.conf
-            {wslConfContent}
-            EOF
-            """;
-
-        return await _runner.ExecuteInDistroAsync(distro, bash, cancellationToken: cancellationToken);
-    }
-
-    public async Task<WslExecutionResult> ConfigureGpuEnvironmentAsync(string distro, Action<string>? onProgress = null, CancellationToken cancellationToken = default)
-    {
-        var bash = """
-            # 1. Register WSL GPU libraries with the dynamic linker
-            mkdir -p /etc/ld.so.conf.d
-            echo "/usr/lib/wsl/lib" > /etc/ld.so.conf.d/ld.wsl.conf
-            ldconfig 2>/dev/null || true
-
-            # 2. Add Mesa D3D12 environment variables to global profile
-            cat << 'EOF' > /etc/profile.d/wsl-gpu.sh
-            export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
-            export LIBGL_ALWAYS_SOFTWARE=0
-            export GALLIUM_DRIVER=d3d12
-            EOF
-            chmod +x /etc/profile.d/wsl-gpu.sh
-
-            # 3. Add to /etc/environment for systemd sessions
-            touch /etc/environment
-            grep -q "MESA_D3D12_DEFAULT_ADAPTER_NAME" /etc/environment || echo "MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA" >> /etc/environment
-            grep -q "LIBGL_ALWAYS_SOFTWARE" /etc/environment || echo "LIBGL_ALWAYS_SOFTWARE=0" >> /etc/environment
-            grep -q "GALLIUM_DRIVER" /etc/environment || echo "GALLIUM_DRIVER=d3d12" >> /etc/environment
-            """;
-
-        return await _runner.ExecuteInDistroAsync(distro, bash, onOutputLine: onProgress, cancellationToken: cancellationToken);
-    }
-
-    public async Task<WslExecutionResult> InstallMesaDriversAsync(string distro, Action<string>? onProgress = null, CancellationToken cancellationToken = default)
-    {
-        var bash = "dnf install -y mesa-dri-drivers mesa-vulkan-drivers glx-utils xorg-x11-server-Xvfb gawk";
-        return await _runner.ExecuteInDistroAsync(distro, bash, onOutputLine: onProgress, cancellationToken: cancellationToken);
-    }
-
+    /// <summary>
+    /// Runs OpenGL/Mesa diagnostics inside the distribution to verify GPU-PV acceleration.
+    /// </summary>
     public async Task<GpuDiagnosticReport> RunGpuDiagnosticsAsync(string distro, CancellationToken cancellationToken = default)
     {
         var dxgResult = await _runner.ExecuteInDistroAsync(distro, "[ -c /dev/dxg ] && echo 'YES' || echo 'NO'", cancellationToken: cancellationToken);

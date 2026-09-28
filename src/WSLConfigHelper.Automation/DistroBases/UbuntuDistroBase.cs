@@ -138,9 +138,10 @@ public class UbuntuDistroBase : IDistroBase
         IEnumerable<string> packages,
         IWslProcessRunner runner,
         Action<string>? onProgress = null,
+        bool noCache = false,
         CancellationToken ct = default)
     {
-        var script = _cacheHelper.BuildAptInstallScript(Id, packages);
+        var script = _cacheHelper.BuildAptInstallScript(Id, packages, noCache);
         return await runner.ExecuteInDistroAsync(distro, script, user: "root", onOutputLine: onProgress, cancellationToken: ct);
     }
 }

@@ -36,5 +36,6 @@ public interface IDistroBase
         IEnumerable<string> packages,
         IWslProcessRunner runner,
         Action<string>? onProgress = null,
+        bool noCache = false,
         CancellationToken ct = default);
 }
